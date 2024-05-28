@@ -1,5 +1,5 @@
 # PDF-application
-python 執行 PDF 的編輯
+執行 PDF 的編輯
 可進行拆分、大量合併、合併、加密、旋轉
 
 拆分:
