@@ -1,9 +1,8 @@
 # Virtual environment
 .venv/
 
-# PyInstaller build output
+# PyInstaller build output (暫存，非產出物)
 build/
-dist/
 *.spec
 
 # Python cache
