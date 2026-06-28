@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Tools</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root-wrapper">
+
+  <!-- Header -->
+  <header class="app-header">
+    <span class="header-logo">PDF Tools</span>
+    <div class="zoom-bar">
+      <button class="zoom-btn" onclick="adjustZoom(-10)">A−</button>
+      <span id="zoom-label">100%</span>
+      <button class="zoom-btn" onclick="adjustZoom(10)">A+</button>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+
+    <!-- 左：檔案操作 -->
+    <div class="toolbar-group">
+      <button class="btn-primary" onclick="openNewPdf()">開啟 PDF</button>
+      <button class="btn-tool" id="btn-append" onclick="appendPdf()" disabled>附加 PDF</button>
+    </div>
+
+    <div class="toolbar-sep" id="page-tools-sep" style="display:none"></div>
+
+    <!-- 中：頁面操作（有檔案後才顯示） -->
+    <div class="toolbar-group" id="page-tools" style="display:none">
+      <button class="btn-tool" onclick="editorSelectAll()">全選</button>
+      <button class="btn-tool" onclick="editorRotateSelected()">↻ 旋轉選取</button>
+      <button class="btn-tool danger" onclick="editorDeleteSelected()">✕ 刪除選取</button>
+      <button class="btn-tool" onclick="extractSelected()">擷取選取頁</button>
+    </div>
+
+    <!-- 右：儲存區（有檔案後才顯示） -->
+    <div class="toolbar-right" id="save-tools" style="display:none">
+      <label class="encrypt-label">
+        <input type="checkbox" id="encrypt-check" onchange="toggleEncrypt()">
+        加密
+      </label>
+      <input type="password" id="encrypt-pw" class="pw-input" placeholder="密碼…" style="display:none">
+      <div class="toolbar-sep"></div>
+      <input type="text" id="output-path" class="path-input" placeholder="輸出路徑（可選）…">
+      <button class="btn-tool" onclick="browseOutput()">瀏覽</button>
+      <button class="btn-primary" onclick="saveEditor()">儲存</button>
+    </div>
+
+  </div>
+
+  <!-- Editor grid -->
+  <div id="editor-grid" class="editor-grid">
+    <div class="editor-placeholder">
+      <p>點擊「開啟 PDF」載入檔案</p>
+      <p class="hint">支援同時附加多個 PDF、拖拉重新排序、單頁旋轉或刪除</p>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar" id="statusbar"></div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Unsaved changes confirm modal -->
+  <div id="confirm-modal" class="modal-overlay">
+    <div class="modal-box">
+      <p id="confirm-msg"></p>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="hideConfirm()">取消</button>
+        <button id="confirm-yes" class="btn-primary">確定放棄</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
