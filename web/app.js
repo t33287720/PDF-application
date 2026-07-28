@@ -74,7 +74,7 @@ document.getElementById('confirm-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('confirm-modal')) hideConfirm();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') hideConfirm();
+  if (e.key === 'Escape') { hideConfirm(); hideExportModal(); }
 });
 
 // ── Editor state ──────────────────────────────────────────────────────────────
@@ -368,6 +368,51 @@ async function extractSelected() {
 
   setStatus('擷取中…', true);
   const res = await pywebview.api.save_edited_pdf(buildPageList(selected), out, '')
+    || { ok: false, msg: '發生未知錯誤' };
+  setStatus(res.msg, res.ok);
+  showToast(res.msg, res.ok);
+}
+
+// ── Export as images ──────────────────────────────────────────────────────────
+
+let _exportTargets = [];
+
+function exportSelectedAsImages() {
+  const active = editorPages.filter(p => !p.deleted);
+  const selected = active.filter(p => p.selected);
+  _exportTargets = selected.length ? selected : active;
+  if (!_exportTargets.length) { showToast('沒有頁面可匯出！', false); return; }
+  document.getElementById('export-modal').classList.add('show');
+}
+
+function hideExportModal() {
+  document.getElementById('export-modal').classList.remove('show');
+}
+
+document.getElementById('export-fmt').addEventListener('change', e => {
+  document.getElementById('export-quality-field').style.display =
+    e.target.value === 'jpg' ? 'flex' : 'none';
+});
+
+document.getElementById('export-quality').addEventListener('input', e => {
+  document.getElementById('export-quality-label').textContent = e.target.value;
+});
+
+document.getElementById('export-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('export-modal')) hideExportModal();
+});
+
+async function confirmExport() {
+  const fmt     = document.getElementById('export-fmt').value;
+  const dpi     = parseInt(document.getElementById('export-dpi').value, 10);
+  const quality = parseInt(document.getElementById('export-quality').value, 10);
+
+  const dir = await pywebview.api.browse_folder();
+  if (!dir) return;
+  hideExportModal();
+
+  setStatus('匯出中…', true);
+  const res = await pywebview.api.export_pages_as_images(buildPageList(_exportTargets), dir, fmt, dpi, quality)
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);

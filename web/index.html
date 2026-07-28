@@ -35,6 +35,7 @@
       <button class="btn-tool" onclick="editorRotateSelected()">↻ 旋轉選取</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()">✕ 刪除選取</button>
       <button class="btn-tool" onclick="extractSelected()">擷取選取頁</button>
+      <button class="btn-tool" onclick="exportSelectedAsImages()">轉存圖片</button>
     </div>
 
     <!-- 右：儲存區（有檔案後才顯示） -->
@@ -73,6 +74,37 @@
       <div class="modal-btns">
         <button class="btn-tool" onclick="hideConfirm()">取消</button>
         <button id="confirm-yes" class="btn-primary">確定放棄</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export as images modal -->
+  <div id="export-modal" class="modal-overlay">
+    <div class="modal-box">
+      <p>轉存圖片設定</p>
+      <div class="export-field">
+        <label for="export-fmt">格式</label>
+        <select id="export-fmt">
+          <option value="jpg">JPG</option>
+          <option value="png">PNG</option>
+        </select>
+      </div>
+      <div class="export-field">
+        <label for="export-dpi">解析度</label>
+        <select id="export-dpi">
+          <option value="72">72 DPI（螢幕用）</option>
+          <option value="150" selected>150 DPI（一般）</option>
+          <option value="300">300 DPI（列印用）</option>
+        </select>
+      </div>
+      <div class="export-field" id="export-quality-field">
+        <label for="export-quality">JPG 品質</label>
+        <input type="range" id="export-quality" min="10" max="100" value="90">
+        <span id="export-quality-label">90</span>
+      </div>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="hideExportModal()">取消</button>
+        <button class="btn-primary" onclick="confirmExport()">選擇資料夾並匯出</button>
       </div>
     </div>
   </div>

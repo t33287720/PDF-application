@@ -371,6 +371,32 @@ html, body {
   gap: 10px;
 }
 
+/* ── Export modal fields ─────────────────────────────────── */
+.export-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.export-field label {
+  width: 70px;
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.export-field select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.export-field select:focus { border-color: var(--blue); }
+.export-field input[type="range"] { flex: 1; }
+.export-field span { font-size: 13px; color: var(--text-muted); width: 28px; text-align: right; }
+
 /* ── End drop zone ───────────────────────────────────────── */
 .end-drop-zone {
   display: none;

@@ -24,6 +24,18 @@ def _auto_name(directory, prefix):
         i += 1
 
 
+def _auto_name_image(path):
+    if not os.path.exists(path):
+        return path
+    root, ext = os.path.splitext(path)
+    i = 2
+    while True:
+        candidate = f"{root}_{i}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        i += 1
+
+
 class API:
 
     # ── Zoom ──────────────────────────────────────────────────────────────────
@@ -81,6 +93,12 @@ class API:
             save_filename=f"{default_name}.pdf",
             file_types=("PDF Files (*.pdf)",)
         )
+        if not result:
+            return ""
+        return result[0] if isinstance(result, (list, tuple)) else result
+
+    def browse_folder(self):
+        result = webview.windows[0].create_file_dialog(webview.FileDialog.FOLDER)
         if not result:
             return ""
         return result[0] if isinstance(result, (list, tuple)) else result
@@ -164,6 +182,53 @@ class API:
                     new_doc.close()
 
             return {"ok": True, "msg": f"儲存成功！已儲存：{out_path}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def export_pages_as_images(self, pages, out_dir, fmt, dpi, quality):
+        """
+        pages   : list of {src, orig_idx, rotation}
+        out_dir : output directory
+        fmt     : 'jpg' or 'png'
+        dpi     : target resolution (72 = 100%)
+        quality : JPEG quality 1-100 (ignored for png)
+        """
+        try:
+            if not pages:
+                return {"ok": False, "msg": "沒有頁面可匯出！"}
+            if not out_dir or not os.path.isdir(out_dir):
+                return {"ok": False, "msg": "輸出資料夾不存在！"}
+
+            ext = "jpg" if fmt == "jpg" else "png"
+            zoom = max(dpi, 36) / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+
+            open_docs = {}
+            count = 0
+            try:
+                for p in pages:
+                    src = p["src"]
+                    if src not in open_docs:
+                        open_docs[src] = fitz.open(src)
+                    doc = open_docs[src]
+                    page = doc[p["orig_idx"]]
+                    if p.get("rotation"):
+                        page.set_rotation((page.rotation + p["rotation"]) % 360)
+                    pix = page.get_pixmap(matrix=mat)
+
+                    base = os.path.splitext(os.path.basename(src))[0]
+                    out_path = os.path.join(out_dir, f"{base}_p{p['orig_idx'] + 1:03d}.{ext}")
+                    out_path = _auto_name_image(out_path)
+                    if fmt == "jpg":
+                        pix.save(out_path, output="jpg", jpg_quality=quality)
+                    else:
+                        pix.save(out_path, output="png")
+                    count += 1
+            finally:
+                for doc in open_docs.values():
+                    doc.close()
+
+            return {"ok": True, "msg": f"已匯出 {count} 張圖片至：{out_dir}"}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
