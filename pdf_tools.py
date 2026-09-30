@@ -67,9 +67,13 @@ def _auto_name(directory, prefix):
 
 
 def _page_runs(pages):
-    """Group pages into (src, first, last) runs of ascending consecutive indices."""
+    """Group pages into [src, first, last] runs of ascending consecutive indices.
+    A blank page is a run of its own: [None, width, height]."""
     runs = []
     for p in pages:
+        if p.get("blank"):
+            runs.append([None, p["width"], p["height"]])
+            continue
         src, idx = p["src"], p["orig_idx"]
         if runs and runs[-1][0] == src and runs[-1][2] == idx - 1:
             runs[-1][2] = idx
@@ -82,11 +86,12 @@ def _remap_toc(pages, open_docs):
     """Carry source bookmarks over to the pages' new positions; drop removed ones."""
     new_pos = {}
     for n, p in enumerate(pages, start=1):
-        new_pos.setdefault((p["src"], p["orig_idx"]), n)
+        if not p.get("blank"):
+            new_pos.setdefault((p["src"], p["orig_idx"]), n)
     toc, seen = [], set()
     for p in pages:
-        src = p["src"]
-        if src in seen:
+        src = p.get("src")
+        if p.get("blank") or src in seen:
             continue
         seen.add(src)
         for level, title, page_no, *_ in open_docs[src].get_toc(simple=False):
@@ -335,12 +340,15 @@ class API:
         try:
             try:
                 for p in pages:
-                    if p["src"] not in open_docs:
+                    if not p.get("blank") and p["src"] not in open_docs:
                         open_docs[p["src"]] = self._open_src(p["src"])
                 # Insert consecutive pages of the same source in one call,
                 # which also keeps internal links between them
-                for src, start, end in _page_runs(pages):
-                    new_doc.insert_pdf(open_docs[src], from_page=start, to_page=end)
+                for src, a, b in _page_runs(pages):
+                    if src is None:
+                        new_doc.new_page(width=a, height=b)
+                    else:
+                        new_doc.insert_pdf(open_docs[src], from_page=a, to_page=b)
                 toc = _remap_toc(pages, open_docs)   # needs the sources still open
             finally:
                 for doc in open_docs.values():
@@ -396,7 +404,7 @@ class API:
 
     def save_edited_pdf(self, pages, out, options=None):
         """
-        pages   : list of {src, orig_idx, rotation}
+        pages   : list of {src, orig_idx, rotation} or {blank: true, width, height, rotation}
         out     : output path (empty = auto)
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
@@ -408,7 +416,8 @@ class API:
             if not pages:
                 return {"ok": False, "msg": "沒有頁面可儲存！"}
 
-            first_dir = os.path.dirname(pages[0]["src"]) or "."
+            first_src = next((p["src"] for p in pages if not p.get("blank")), "")
+            first_dir = os.path.dirname(first_src) or "."
             out_path = out or _auto_name(first_dir, "edited")
 
             with self._lock:

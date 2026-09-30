@@ -108,7 +108,8 @@ function askPassword(msg) {
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 
-let editorPages = []; // [{srcFile, origIndex, b64, rotation, selected, deleted}]
+// [{srcFile, origIndex, size, aspect, b64, rotation, selected, deleted, blank?}]
+let editorPages = [];
 let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
 
@@ -218,6 +219,7 @@ async function loadPdf(path, append) {
     srcFile:   path,
     origIndex: i,
     b64:       null,      // filled in by loadThumbnails()
+    size:      [w, h],    // points, as displayed before any rotation here
     aspect:    w / h,
     rotation:  0,
     selected:  false,
@@ -420,7 +422,7 @@ function thumbImgStyle(page) {
 // re-orders elements and refreshes what changed (no image re-decoding)
 function createThumb(page) {
   const div = document.createElement('div');
-  div.className = page.b64 ? 'page-thumb' : 'page-thumb loading';
+  div.className = page.b64 || page.blank ? 'page-thumb' : 'page-thumb loading';
   div.draggable = true;
   div.innerHTML = `
     <div class="thumb-img-wrap">
@@ -518,7 +520,7 @@ function updateThumb(page, displayIdx, srcName) {
   div.querySelector('.thumb-num').textContent = displayIdx + 1;
   const src = div.querySelector('.thumb-src');
   src.textContent = srcName;
-  src.title = srcName ? page.srcFile : '';
+  src.title = srcName && !page.blank ? page.srcFile : '';
   src.style.display = srcName ? '' : 'none';
   return div;
 }
@@ -552,9 +554,10 @@ function renderEditorGrid() {
   }
 
   // Show the source file name only when pages come from more than one PDF
-  const multiSrc = new Set(visible.map(p => p.srcFile)).size > 1;
+  const multiSrc = new Set(visible.filter(p => !p.blank).map(p => p.srcFile)).size > 1;
+  const label = page => page.blank ? '空白頁' : multiSrc ? fileNameOf(page.srcFile) : '';
   grid.replaceChildren(
-    ...visible.map((page, i) => updateThumb(page, i, multiSrc ? fileNameOf(page.srcFile) : '')),
+    ...visible.map((page, i) => updateThumb(page, i, label(page))),
     endZone,
   );
   updateInfo();
@@ -600,6 +603,22 @@ function editorDeleteSelected() {
   showToast(`已刪除 ${targets.length} 頁（Ctrl+Z 可復原）`, true);
 }
 
+// Inserts after the last selected page (or at the end), sized like its neighbour
+function insertBlankPage() {
+  const visible  = editorPages.filter(p => !p.deleted);
+  const selected = visible.filter(p => p.selected);
+  const ref = selected.length ? selected[selected.length - 1] : visible[visible.length - 1];
+  let [w, h] = ref ? ref.size : [595, 842];   // A4
+  if (ref && ref.rotation % 180) [w, h] = [h, w];
+  const page = {
+    blank: true, srcFile: null, origIndex: null, size: [w, h], aspect: w / h,
+    b64: null, rotation: 0, selected: false, deleted: false,
+  };
+  applyEdit(() => {
+    editorPages.splice(ref ? editorPages.indexOf(ref) + 1 : editorPages.length, 0, page);
+  });
+}
+
 function editorRotateSelected() {
   const targets = editorPages.filter(p => p.selected && !p.deleted);
   if (!targets.length) { showToast('請先選取要旋轉的頁面！', false); return; }
@@ -621,17 +640,30 @@ async function openPreview(page) {
   document.getElementById('preview-modal').classList.add('show');
   document.querySelector('.preview-nav.prev').disabled = pos <= 0;
   document.querySelector('.preview-nav.next').disabled = pos >= visible.length - 1;
-  document.getElementById('preview-caption').textContent =
-    `第 ${pos + 1} / ${visible.length} 頁　${fileNameOf(page.srcFile)} 原第 ${page.origIndex + 1} 頁`;
+  document.getElementById('preview-caption').textContent = page.blank
+    ? `第 ${pos + 1} / ${visible.length} 頁　空白頁`
+    : `第 ${pos + 1} / ${visible.length} 頁　${fileNameOf(page.srcFile)} 原第 ${page.origIndex + 1} 頁`;
   fig.classList.remove('ready');
 
-  const res = await pywebview.api.get_preview(page.srcFile, page.origIndex);
+  const res = page.blank
+    ? { ok: true, b64: blankImage(page) }
+    : await pywebview.api.get_preview(page.srcFile, page.origIndex);
   if (token !== previewToken) return;  // user moved on to another page
   if (!res || !res.ok) { closePreview(); showToast(res ? res.msg : '預覽失敗', false); return; }
   img.src = res.b64;
   img.style.transform = page.rotation ? `rotate(${page.rotation}deg)` : '';
   img.classList.toggle('quarter', page.rotation % 180 !== 0);
   fig.classList.add('ready');
+}
+
+function blankImage(page) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 600;
+  canvas.height = Math.round(600 / page.aspect);
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL();
 }
 
 function stepPreview(delta) {
@@ -685,11 +717,9 @@ document.addEventListener('keydown', e => {
 // ── Save / Extract ────────────────────────────────────────────────────────────
 
 function buildPageList(pagesArr) {
-  return pagesArr.map(p => ({
-    src:      p.srcFile,
-    orig_idx: p.origIndex,
-    rotation: p.rotation,
-  }));
+  return pagesArr.map(p => p.blank
+    ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation }
+    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation });
 }
 
 async function saveEditor() {

@@ -54,10 +54,15 @@ def api(tmp_path, monkeypatch):
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+def blank(width=595, height=842, rotation=0):
+    return {"blank": True, "width": width, "height": height, "rotation": rotation}
+
+
 def test_page_runs_groups_consecutive_pages():
-    pages = pages_of("a", 0, 1, 2, 5) + pages_of("b", 0) + pages_of("a", 6, 3)
+    pages = (pages_of("a", 0, 1, 2, 5) + pages_of("b", 0) + [blank(100, 200)]
+             + pages_of("a", 6, 3))
     assert pdf_tools._page_runs(pages) == [
-        ["a", 0, 2], ["a", 5, 5], ["b", 0, 0], ["a", 6, 6], ["a", 3, 3],
+        ["a", 0, 2], ["a", 5, 5], ["b", 0, 0], [None, 100, 200], ["a", 6, 6], ["a", 3, 3],
     ]
 
 
@@ -102,6 +107,22 @@ def test_save_reorders_rotates_and_merges(api, tmp_path):
     res = api.save_edited_pdf(pages, out)
     assert res["ok"] and res["path"] == out
     assert texts(out) == [("Page 3", 0), ("Page 2", 90), ("Page 1", 270)]
+
+
+def test_save_with_blank_pages(api, tmp_path):
+    toc = [[1, "One", 1], [1, "Two", 2]]
+    src = make_pdf(tmp_path / "a.pdf", 2, toc=toc)
+    out = str(tmp_path / "out.pdf")
+    pages = [blank(842, 595)] + pages_of(src, 0) + [blank(rotation=90)] + pages_of(src, 1)
+    assert api.save_edited_pdf(pages, out)["ok"]
+    doc = fitz.open(out)
+    assert [(pg.rect.width, pg.rect.height, pg.rotation) for pg in doc] == [
+        (842, 595, 0), (595, 842, 0), (842, 595, 90), (595, 842, 0)]
+    assert doc[0].get_text() == "" and doc[1].get_text().strip() == "Page 1"
+    assert doc.get_toc() == [[1, "One", 2], [1, "Two", 4]]
+    doc.close()
+    # a document made of blank pages only
+    assert api.save_edited_pdf([blank()], str(tmp_path / "b.pdf"))["ok"]
 
 
 def test_save_does_not_bloat_shared_resources(api, tmp_path):
