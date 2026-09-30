@@ -77,6 +77,18 @@
     </div>
   </div>
 
+  <!-- Password prompt modal (for encrypted source PDFs) -->
+  <div id="pw-modal" class="modal-overlay">
+    <div class="modal-box">
+      <p id="pw-modal-msg"></p>
+      <input type="password" id="pw-modal-input" class="pw-input modal-input" placeholder="密碼…">
+      <div class="modal-btns">
+        <button class="btn-tool" id="pw-modal-cancel">取消</button>
+        <button class="btn-primary" id="pw-modal-ok">確定</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 <script src="app.js"></script>
 </body>

@@ -365,6 +365,8 @@ html, body {
   color: var(--text);
   margin-bottom: 22px;
 }
+.modal-box p { word-break: break-all; }
+.modal-input { width: 100%; margin: -8px 0 20px; }
 .modal-btns {
   display: flex;
   justify-content: flex-end;

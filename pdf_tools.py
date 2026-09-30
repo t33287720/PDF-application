@@ -26,6 +26,16 @@ def _auto_name(directory, prefix):
 
 class API:
 
+    def __init__(self):
+        self._passwords = {}   # src path -> password for encrypted source PDFs
+
+    def _open_src(self, path):
+        doc = fitz.open(path)
+        if doc.needs_pass and not doc.authenticate(self._passwords.get(path, "")):
+            doc.close()
+            raise ValueError(f"無法解鎖加密檔案：{os.path.basename(path)}")
+        return doc
+
     # ── Zoom ──────────────────────────────────────────────────────────────────
 
     def set_dirty(self, value):
@@ -87,12 +97,18 @@ class API:
 
     # ── Editor ────────────────────────────────────────────────────────────────
 
-    def open_pdf_for_editor(self, path):
+    def open_pdf_for_editor(self, path, password=""):
         try:
             if not os.path.isfile(path):
                 return {"ok": False, "msg": "PDF 不存在！"}
             doc = fitz.open(path)
             try:
+                if doc.needs_pass:
+                    if not password:
+                        return {"ok": False, "need_password": True, "msg": "此 PDF 需要密碼"}
+                    if not doc.authenticate(password):
+                        return {"ok": False, "need_password": True, "msg": "密碼錯誤，請重新輸入"}
+                    self._passwords[path] = password
                 pages = []
                 mat = fitz.Matrix(0.22, 0.22)
                 for i in range(len(doc)):
@@ -126,7 +142,7 @@ class API:
                     for p in pages:
                         src = p["src"]
                         if src not in open_docs:
-                            open_docs[src] = fitz.open(src)
+                            open_docs[src] = self._open_src(src)
                         new_doc.insert_pdf(open_docs[src],
                                            from_page=p["orig_idx"],
                                            to_page=p["orig_idx"])

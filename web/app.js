@@ -77,6 +77,31 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') hideConfirm();
 });
 
+// ── Password prompt modal ─────────────────────────────────────────────────────
+
+// Resolves to the entered password, or null if cancelled
+function askPassword(msg) {
+  const modal  = document.getElementById('pw-modal');
+  const input  = document.getElementById('pw-modal-input');
+  document.getElementById('pw-modal-msg').textContent = msg;
+  input.value = '';
+  modal.classList.add('show');
+  input.focus();
+  return new Promise(resolve => {
+    const done = value => {
+      modal.classList.remove('show');
+      input.onkeydown = null;
+      resolve(value);
+    };
+    document.getElementById('pw-modal-ok').onclick     = () => done(input.value);
+    document.getElementById('pw-modal-cancel').onclick = () => done(null);
+    input.onkeydown = e => {
+      if (e.key === 'Enter')  done(input.value);
+      if (e.key === 'Escape') done(null);
+    };
+  });
+}
+
 // ── Editor state ──────────────────────────────────────────────────────────────
 
 let editorPages = []; // [{srcFile, origIndex, b64, rotation, selected, deleted}]
@@ -89,7 +114,6 @@ async function openNewPdf() {
     showConfirm('有未儲存的變更，開啟新 PDF 將會遺失目前的修改，確定繼續嗎？', async () => {
       const path = await pywebview.api.browse_open();
       if (!path) return;
-      markClean();
       await loadPdf(path, false);
     });
     return;
@@ -113,18 +137,24 @@ async function loadPdf(path, append) {
   setStatus('載入中…', true);
   const grid = document.getElementById('editor-grid');
   if (!append) {
-    editorPages = [];
     grid.innerHTML = '<div class="editor-loading"><div class="spinner"></div><span>載入頁面中，請稍候…</span></div>';
   }
 
-  const res = await pywebview.api.open_pdf_for_editor(path);
+  const fileName = path.split(/[/\\]/).pop();
+  let res = await pywebview.api.open_pdf_for_editor(path, '');
+  while (res && res.need_password) {
+    const pw = await askPassword(`「${fileName}」${res.msg}`);
+    if (pw === null) { res = { ok: false, msg: '已取消開啟加密檔案' }; break; }
+    res = await pywebview.api.open_pdf_for_editor(path, pw);
+  }
   btnOpen.disabled = false;
   btnAppend.disabled = editorPages.length === 0;
 
   if (!res || !res.ok) {
-    if (append) renderEditorGrid();
-    else grid.innerHTML = `<div class="editor-placeholder"><p>載入失敗：${res ? res.msg : '未知錯誤'}</p></div>`;
-    return setStatus(res ? res.msg : '未知錯誤', false);
+    const msg = res ? res.msg : '未知錯誤';
+    if (append || editorPages.length) renderEditorGrid();
+    else grid.innerHTML = `<div class="editor-placeholder"><p>載入失敗：${escapeHtml(msg)}</p></div>`;
+    return setStatus(msg, false);
   }
 
   const newPages = res.pages.map(p => ({
