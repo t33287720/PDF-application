@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 
 import fitz
@@ -87,7 +88,7 @@ def test_open_encrypted_source(api, tmp_path):
     assert api.get_thumbnails(src, 0, 2)["ok"]
     assert api.get_preview(src, 1)["ok"]
     out = str(tmp_path / "out.pdf")
-    assert api.save_edited_pdf(pages_of(src, 1, 0), out, "")["ok"]
+    assert api.save_edited_pdf(pages_of(src, 1, 0), out)["ok"]
     assert texts(out) == [("Page 2", 0), ("Page 1", 0)]
 
 
@@ -98,7 +99,7 @@ def test_save_reorders_rotates_and_merges(api, tmp_path):
     b = make_pdf(tmp_path / "b.pdf", 2)
     pages = pages_of(a, 2) + pages_of(b, 1, rotation=90) + pages_of(a, 0, rotation=270)
     out = str(tmp_path / "out.pdf")
-    res = api.save_edited_pdf(pages, out, "")
+    res = api.save_edited_pdf(pages, out)
     assert res["ok"] and res["path"] == out
     assert texts(out) == [("Page 3", 0), ("Page 2", 90), ("Page 1", 270)]
 
@@ -106,7 +107,7 @@ def test_save_reorders_rotates_and_merges(api, tmp_path):
 def test_save_does_not_bloat_shared_resources(api, tmp_path):
     src = make_pdf(tmp_path / "img.pdf", 20, image=True)
     out = str(tmp_path / "out.pdf")
-    api.save_edited_pdf(pages_of(src, *range(20)), out, "")
+    api.save_edited_pdf(pages_of(src, *range(20)), out)
     assert os.path.getsize(out) < os.path.getsize(src) * 1.2
 
 
@@ -115,17 +116,35 @@ def test_save_remaps_bookmarks(api, tmp_path):
     src = make_pdf(tmp_path / "toc.pdf", 4, toc=toc)
     out = str(tmp_path / "out.pdf")
     # drop page 2 (Part A) and move page 4 to the front
-    api.save_edited_pdf(pages_of(src, 3, 0, 2), out, "")
+    api.save_edited_pdf(pages_of(src, 3, 0, 2), out)
     doc = fitz.open(out)
     # "A.1" lost its parent, so it is promoted to keep the outline valid
     assert doc.get_toc() == [[1, "Intro", 2], [2, "A.1", 3], [1, "Part B", 1]]
     doc.close()
 
 
+def test_compress_downsamples_images(api, tmp_path):
+    # a noisy (poorly compressible) 1500px image shown at ~3 inches -> ~500 DPI
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 1500, 1500), False)
+    pix.set_rect(pix.irect, (255, 255, 255))
+    rnd = random.Random(1)
+    for _ in range(40000):
+        pix.set_pixel(rnd.randrange(1500), rnd.randrange(1500), (rnd.randrange(256), 0, 0))
+    page.insert_image(fitz.Rect(50, 50, 266, 266), pixmap=pix)
+    src = str(tmp_path / "photo.pdf")
+    doc.save(src)
+    plain, small = str(tmp_path / "plain.pdf"), str(tmp_path / "small.pdf")
+    api.save_edited_pdf(pages_of(src, 0), plain)
+    api.save_edited_pdf(pages_of(src, 0), small, {"compress": "high"})
+    assert os.path.getsize(small) < os.path.getsize(plain) / 3
+
+
 def test_save_encrypted_restricts_copying(api, tmp_path):
     src = make_pdf(tmp_path / "a.pdf", 2)
     out = str(tmp_path / "enc.pdf")
-    assert api.save_edited_pdf(pages_of(src, 0, 1), out, "pw")["ok"]
+    assert api.save_edited_pdf(pages_of(src, 0, 1), out, {"password": "pw"})["ok"]
     doc = fitz.open(out)
     assert doc.needs_pass
     assert doc.authenticate("pw") == 2          # user level, not owner
@@ -140,12 +159,12 @@ def test_save_over_source(api, tmp_path):
     src = make_pdf(tmp_path / "a.pdf", 3)
     api.open_pdf_for_editor(src)
     api.get_thumbnails(src, 0, 3)               # keeps the source open
-    assert api.save_edited_pdf(pages_of(src, 2, 1), src, "")["ok"]
+    assert api.save_edited_pdf(pages_of(src, 2, 1), src)["ok"]
     assert texts(src) == [("Page 3", 0), ("Page 2", 0)]
 
 
 def test_save_nothing(api):
-    assert not api.save_edited_pdf([], "x.pdf", "")["ok"]
+    assert not api.save_edited_pdf([], "x.pdf")["ok"]
 
 
 # ── output path ──────────────────────────────────────────────────────────────

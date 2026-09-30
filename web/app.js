@@ -333,11 +333,48 @@ async function resolveOutput(path, fromDialog, allowSource = true) {
   });
 }
 
-// ── Encrypt toggle ────────────────────────────────────────────────────────────
+// ── Output options ────────────────────────────────────────────────────────────
 
-function toggleEncrypt() {
-  const checked = document.getElementById('encrypt-check').checked;
-  document.getElementById('encrypt-pw').style.display = checked ? 'block' : 'none';
+const optionsModal = document.getElementById('options-modal');
+
+// A checkbox reveals the settings block tied to it via data-for
+optionsModal.addEventListener('change', e => {
+  if (e.target.type !== 'checkbox') return;
+  const body = optionsModal.querySelector(`.opt-body[data-for="${e.target.id}"]`);
+  if (body) body.classList.toggle('show', e.target.checked);
+});
+optionsModal.addEventListener('click', e => { if (e.target === optionsModal) closeOptions(); });
+optionsModal.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeOptions();
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT') closeOptions();
+});
+
+function openOptions() {
+  optionsModal.classList.add('show');
+}
+
+function closeOptions() {
+  if (!getOutputOptions()) return;   // keep open until the settings are valid
+  optionsModal.classList.remove('show');
+  updateOptionsBadge();
+}
+
+// Returns the options for the backend, or null (with a toast) if incomplete
+function getOutputOptions() {
+  const opts = { compress: document.getElementById('opt-compress').value };
+  if (document.getElementById('opt-encrypt').checked) {
+    opts.password = document.getElementById('opt-password').value;
+    if (!opts.password) { showToast('請輸入加密密碼！', false); return null; }
+  }
+  return opts;
+}
+
+function updateOptionsBadge() {
+  const opts = getOutputOptions() || {};
+  const count = [opts.password, opts.compress !== 'none'].filter(Boolean).length;
+  const badge = document.getElementById('options-badge');
+  badge.textContent = count;
+  badge.classList.toggle('show', count > 0);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -639,9 +676,8 @@ async function saveEditor() {
   const active = editorPages.filter(p => !p.deleted);
   if (!active.length) { showToast('沒有頁面可儲存！', false); return; }
 
-  const encrypted = document.getElementById('encrypt-check').checked;
-  const password  = encrypted ? document.getElementById('encrypt-pw').value : '';
-  if (encrypted && !password) { showToast('請輸入加密密碼！', false); return; }
+  const options = getOutputOptions();
+  if (!options) { openOptions(); return; }
 
   const outInput = document.getElementById('output-path');
   let out = outInput.value.trim();
@@ -657,7 +693,7 @@ async function saveEditor() {
   outputFromDialog = fromDialog;
 
   setStatus('儲存中…', true);
-  const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, password)
+  const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, options)
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);
@@ -675,6 +711,8 @@ async function saveEditor() {
 async function extractSelected() {
   const selected = editorPages.filter(p => !p.deleted && p.selected);
   if (!selected.length) { showToast('請先選取要擷取的頁面！', false); return; }
+  const options = getOutputOptions();
+  if (!options) { openOptions(); return; }
 
   let out = await pywebview.api.browse_save('extract_output');
   if (!out) return;
@@ -682,7 +720,7 @@ async function extractSelected() {
   if (!out) return;
 
   setStatus('擷取中…', true);
-  const res = await pywebview.api.save_edited_pdf(buildPageList(selected), out, '')
+  const res = await pywebview.api.save_edited_pdf(buildPageList(selected), out, options)
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);

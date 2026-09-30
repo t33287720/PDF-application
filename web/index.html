@@ -41,11 +41,7 @@
 
     <!-- 右：儲存區（有檔案後才顯示） -->
     <div class="toolbar-right" id="save-tools" style="display:none">
-      <label class="encrypt-label">
-        <input type="checkbox" id="encrypt-check" onchange="toggleEncrypt()">
-        加密
-      </label>
-      <input type="password" id="encrypt-pw" class="pw-input" placeholder="密碼…" style="display:none">
+      <button class="btn-tool" id="btn-options" onclick="openOptions()" title="加密、壓縮等">⚙ 輸出選項<span id="options-badge" class="opt-badge"></span></button>
       <div class="toolbar-sep"></div>
       <input type="text" id="output-path" class="path-input" placeholder="輸出路徑（可選）…">
       <button class="btn-tool" onclick="browseOutput()">瀏覽</button>
@@ -89,6 +85,36 @@
     </figure>
     <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)">›</button>
     <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)">✕</button>
+  </div>
+
+  <!-- Output options (applied to every file written: save / extract / split) -->
+  <div id="options-modal" class="modal-overlay">
+    <div class="modal-box options-box">
+      <h3>輸出選項</h3>
+      <p class="opt-hint">套用於儲存、擷取等所有輸出的檔案</p>
+
+      <section class="opt-section">
+        <label class="opt-toggle"><input type="checkbox" id="opt-encrypt"> 加密（AES-256）</label>
+        <div class="opt-body" data-for="opt-encrypt">
+          <input type="password" id="opt-password" class="pw-input" placeholder="開啟密碼…">
+          <span class="opt-note">開啟檔案需要密碼，並禁止複製文字</span>
+        </div>
+      </section>
+
+      <section class="opt-section">
+        <label class="opt-row">壓縮圖片
+          <select id="opt-compress" class="opt-select">
+            <option value="none">不壓縮</option>
+            <option value="medium">標準（150 DPI）</option>
+            <option value="high">強力（96 DPI）</option>
+          </select>
+        </label>
+      </section>
+
+      <div class="modal-btns">
+        <button class="btn-primary" onclick="closeOptions()">完成</button>
+      </div>
+    </div>
   </div>
 
   <!-- Password prompt modal (for encrypted source PDFs) -->

@@ -15,6 +15,12 @@ import fitz  # PyMuPDF
 THUMB_PX    = 240   # thumbnail render width (2x the 120px display size)
 PREVIEW_PX  = 1600  # preview render size of the page's longer side
 
+# Image downsampling for "compress": (images above this DPI, target DPI, JPEG quality)
+COMPRESS_LEVELS = {
+    "medium": (180, 150, 75),
+    "high":   (110, 96, 60),
+}
+
 # Encrypted output: anything but copying text out is allowed
 ENCRYPTED_PERMS = int(
     fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_MODIFY |
@@ -251,7 +257,7 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
-    def _build_and_save(self, pages, out_path, password):
+    def _build_and_save(self, pages, out_path, options):
         # Build new document (pages may come from different source files)
         open_docs = {}
         new_doc = fitz.open()
@@ -274,15 +280,21 @@ class API:
             if toc:
                 new_doc.set_toc(toc)
 
-            options = dict(garbage=4, deflate=True)
+            save_opts = dict(garbage=4, deflate=True)
+            level = COMPRESS_LEVELS.get(options.get("compress"))
+            if level:
+                threshold, target, quality = level
+                new_doc.rewrite_images(dpi_threshold=threshold, dpi_target=target, quality=quality)
+                save_opts.update(use_objstms=True)
+            password = options.get("password")
             if password:
                 # A separate random owner password keeps the permission
                 # restrictions enforceable (with owner == user they'd be moot)
-                options.update(encryption=fitz.PDF_ENCRYPT_AES_256,
+                save_opts.update(encryption=fitz.PDF_ENCRYPT_AES_256,
                                user_pw=password,
                                owner_pw=secrets.token_urlsafe(24),
                                permissions=ENCRYPTED_PERMS)
-            new_doc.save(out_path, **options)
+            new_doc.save(out_path, **save_opts)
         finally:
             new_doc.close()
 
@@ -301,12 +313,14 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
-    def save_edited_pdf(self, pages, out, password):
+    def save_edited_pdf(self, pages, out, options=None):
         """
-        pages    : list of {src, orig_idx, rotation}
-        out      : output path (empty = auto)
-        password : encryption password (empty = none)
+        pages   : list of {src, orig_idx, rotation}
+        out     : output path (empty = auto)
+        options : {password, compress: "none" | "medium" | "high"}
         """
+        options = options or {}
+        password = options.get("password", "")
         try:
             if not pages:
                 return {"ok": False, "msg": "沒有頁面可儲存！"}
@@ -316,7 +330,7 @@ class API:
 
             with self._lock:
                 self._close_thumb_doc()   # output may overwrite that file
-                self._build_and_save(pages, out_path, password)
+                self._build_and_save(pages, out_path, options)
 
             if password:
                 self._passwords[out_path] = password
