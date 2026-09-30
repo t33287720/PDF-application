@@ -5,10 +5,13 @@ import os
 import sys
 import base64
 import tempfile
+import threading
 import webview
 import fitz  # PyMuPDF
 from pikepdf import Pdf, Permissions, Encryption
 
+
+THUMB_PX    = 240   # thumbnail render width (2x the 120px display size)
 
 _zoom_level = 100
 _is_dirty   = False
@@ -61,6 +64,15 @@ class API:
 
     def __init__(self):
         self._passwords = {}   # src path -> password for encrypted source PDFs
+        # pywebview runs each JS call on its own thread and MuPDF isn't
+        # thread-safe, so every fitz operation goes through this lock
+        self._lock = threading.RLock()
+        self._thumb_doc = None  # (path, doc) kept open between thumbnail batches
+
+    def _close_thumb_doc(self):
+        if self._thumb_doc:
+            self._thumb_doc[1].close()
+            self._thumb_doc = None
 
     def _open_src(self, path):
         doc = fitz.open(path)
@@ -146,30 +158,96 @@ class API:
     # ── Editor ────────────────────────────────────────────────────────────────
 
     def open_pdf_for_editor(self, path, password=""):
+        """Check the file (and password) and return page sizes; thumbnails
+        are fetched afterwards in batches through get_thumbnails()."""
         try:
             if not os.path.isfile(path):
                 return {"ok": False, "msg": "PDF 不存在！"}
-            doc = fitz.open(path)
-            try:
-                if doc.needs_pass:
-                    password = password or self._passwords.get(path, "")
-                    if not password:
-                        return {"ok": False, "need_password": True, "msg": "此 PDF 需要密碼"}
-                    if not doc.authenticate(password):
-                        return {"ok": False, "need_password": True, "msg": "密碼錯誤，請重新輸入"}
-                    self._passwords[path] = password
-                pages = []
-                mat = fitz.Matrix(0.22, 0.22)
-                for i in range(len(doc)):
-                    pix = doc[i].get_pixmap(matrix=mat)
-                    b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=70)).decode()
-                    pages.append({"index": i, "b64": f"data:image/jpeg;base64,{b64}",
-                                  "w": pix.width, "h": pix.height})
-            finally:
-                doc.close()
-            return {"ok": True, "pages": pages}
+            with self._lock:
+                doc = fitz.open(path)
+                try:
+                    if doc.needs_pass:
+                        password = password or self._passwords.get(path, "")
+                        if not password:
+                            return {"ok": False, "need_password": True, "msg": "此 PDF 需要密碼"}
+                        if not doc.authenticate(password):
+                            return {"ok": False, "need_password": True, "msg": "密碼錯誤，請重新輸入"}
+                        self._passwords[path] = password
+                    if len(doc) == 0:
+                        return {"ok": False, "msg": "此 PDF 沒有任何頁面"}
+                    sizes = [[pg.rect.width, pg.rect.height] for pg in doc]
+                finally:
+                    doc.close()
+            return {"ok": True, "sizes": sizes}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
+
+    def get_thumbnails(self, path, start, count):
+        try:
+            with self._lock:
+                if not self._thumb_doc or self._thumb_doc[0] != path:
+                    self._close_thumb_doc()
+                    self._thumb_doc = (path, self._open_src(path))
+                doc = self._thumb_doc[1]
+                thumbs = []
+                for i in range(start, min(start + count, len(doc))):
+                    page = doc[i]
+                    zoom = THUMB_PX / max(page.rect.width, 1)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                    b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=75)).decode()
+                    thumbs.append(f"data:image/jpeg;base64,{b64}")
+            return {"ok": True, "thumbs": thumbs}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def _build_and_save(self, pages, out_path, password):
+        # Build new document (pages may come from different source files)
+        open_docs = {}
+        new_doc = fitz.open()
+        try:
+            try:
+                for p in pages:
+                    if p["src"] not in open_docs:
+                        open_docs[p["src"]] = self._open_src(p["src"])
+                # Insert consecutive pages of the same source in one call,
+                # which also keeps internal links between them
+                for src, start, end in _page_runs(pages):
+                    new_doc.insert_pdf(open_docs[src], from_page=start, to_page=end)
+                for pg, p in zip(new_doc, pages):
+                    if p["rotation"]:
+                        pg.set_rotation((pg.rotation + p["rotation"]) % 360)
+                toc = _remap_toc(pages, open_docs)
+                if toc:
+                    new_doc.set_toc(toc)
+            finally:
+                for doc in open_docs.values():
+                    doc.close()
+
+            if password:
+                # fitz doesn't encrypt; save temp then encrypt with pikepdf
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp_path = tmp.name
+                try:
+                    new_doc.save(tmp_path, garbage=4, deflate=True)
+                    new_doc.close()
+                    new_doc = None        # mark closed so outer finally skips it
+                    pdf = Pdf.open(tmp_path)
+                    try:
+                        no_extract = Permissions(extract=False)
+                        pdf.save(out_path, encryption=Encryption(
+                            user=password, owner=password, allow=no_extract))
+                    finally:
+                        pdf.close()
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+            else:
+                new_doc.save(out_path, garbage=4, deflate=True)
+                new_doc.close()
+                new_doc = None            # mark closed
+        finally:
+            if new_doc is not None:
+                new_doc.close()
 
     def save_edited_pdf(self, pages, out, password):
         """
@@ -184,53 +262,9 @@ class API:
             first_dir = os.path.dirname(pages[0]["src"]) or "."
             out_path = out or _auto_name(first_dir, "edited")
 
-            # Build new document (pages may come from different source files)
-            open_docs = {}
-            new_doc = fitz.open()
-            try:
-                try:
-                    for p in pages:
-                        if p["src"] not in open_docs:
-                            open_docs[p["src"]] = self._open_src(p["src"])
-                    # Insert consecutive pages of the same source in one call,
-                    # which also keeps internal links between them
-                    for src, start, end in _page_runs(pages):
-                        new_doc.insert_pdf(open_docs[src], from_page=start, to_page=end)
-                    for pg, p in zip(new_doc, pages):
-                        if p["rotation"]:
-                            pg.set_rotation((pg.rotation + p["rotation"]) % 360)
-                    toc = _remap_toc(pages, open_docs)
-                    if toc:
-                        new_doc.set_toc(toc)
-                finally:
-                    for doc in open_docs.values():
-                        doc.close()
-
-                if password:
-                    # fitz doesn't encrypt; save temp then encrypt with pikepdf
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                        tmp_path = tmp.name
-                    try:
-                        new_doc.save(tmp_path, garbage=4, deflate=True)
-                        new_doc.close()
-                        new_doc = None        # mark closed so outer finally skips it
-                        pdf = Pdf.open(tmp_path)
-                        try:
-                            no_extract = Permissions(extract=False)
-                            pdf.save(out_path, encryption=Encryption(
-                                user=password, owner=password, allow=no_extract))
-                        finally:
-                            pdf.close()
-                    finally:
-                        if os.path.exists(tmp_path):
-                            os.unlink(tmp_path)
-                else:
-                    new_doc.save(out_path, garbage=4, deflate=True)
-                    new_doc.close()
-                    new_doc = None            # mark closed
-            finally:
-                if new_doc is not None:
-                    new_doc.close()
+            with self._lock:
+                self._close_thumb_doc()   # output may overwrite that file
+                self._build_and_save(pages, out_path, password)
 
             if password:
                 self._passwords[out_path] = password

@@ -109,7 +109,7 @@ function askPassword(msg) {
 // ── Editor state ──────────────────────────────────────────────────────────────
 
 let editorPages = []; // [{srcFile, origIndex, b64, rotation, selected, deleted}]
-let dragSrcIdx  = null;
+let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
 
 // ── Undo / Redo ───────────────────────────────────────────────────────────────
@@ -214,16 +214,17 @@ async function loadPdf(path, append) {
     return setStatus(msg, false);
   }
 
-  const newPages = res.pages.map(p => ({
+  const newPages = res.sizes.map(([w, h], i) => ({
     srcFile:   path,
-    origIndex: p.index,
-    b64:       p.b64,
-    aspect:    p.w / p.h,
+    origIndex: i,
+    b64:       null,      // filled in by loadThumbnails()
+    aspect:    w / h,
     rotation:  0,
     selected:  false,
     deleted:   false,
   }));
 
+  if (!append) thumbGeneration++;   // stop filling thumbnails of the old document
   if (append) {
     pushUndo();
     editorPages = [...editorPages, ...newPages];
@@ -244,6 +245,29 @@ async function loadPdf(path, append) {
   renderEditorGrid();
   const action = append ? `已附加 ${newPages.length} 頁` : `已載入 ${newPages.length} 頁`;
   setStatus(`${action}，共 ${editorPages.filter(p=>!p.deleted).length} 頁`, true);
+  loadThumbnails(path, newPages);
+}
+
+// ── Thumbnails (fetched in batches after the page grid is shown) ─────────────
+
+const THUMB_BATCH = 8;
+let thumbGeneration = 0;
+
+async function loadThumbnails(path, pages) {
+  const gen = thumbGeneration;
+  for (let start = 0; start < pages.length; start += THUMB_BATCH) {
+    const res = await pywebview.api.get_thumbnails(path, start, THUMB_BATCH);
+    if (gen !== thumbGeneration) return;
+    if (!res || !res.ok) { setStatus(`縮圖載入失敗：${res ? res.msg : '未知錯誤'}`, false); return; }
+    res.thumbs.forEach((b64, i) => {
+      const page = pages[start + i];
+      page.b64 = b64;
+      if (page.el) {
+        page.el.querySelector('img').src = b64;
+        page.el.classList.remove('loading');
+      }
+    });
+  }
 }
 
 // True while the output path came from the save dialog (not typed by hand)
@@ -309,10 +333,132 @@ function thumbImgStyle(page) {
          `transform:translate(-50%,-50%) rotate(${page.rotation}deg)`;
 }
 
+// Each page's DOM element is built once and reused; rendering only
+// re-orders elements and refreshes what changed (no image re-decoding)
+function createThumb(page) {
+  const div = document.createElement('div');
+  div.className = page.b64 ? 'page-thumb' : 'page-thumb loading';
+  div.draggable = true;
+  div.innerHTML = `
+    <div class="thumb-img-wrap">
+      <img draggable="false" alt="">
+      <div class="rotation-badge"></div>
+      <div class="thumb-overlay">
+        <button class="thumb-btn" title="旋轉 90°">↻</button>
+        <button class="thumb-btn delete" title="刪除">✕</button>
+      </div>
+    </div>
+    <div class="thumb-footer">
+      <span class="thumb-num"></span>
+      <span class="thumb-src"></span>
+    </div>`;
+  const [btnRotate, btnDelete] = div.querySelectorAll('.thumb-btn');
+  btnRotate.addEventListener('click', e => rotateOnePage(editorPages.indexOf(page), e));
+  btnDelete.addEventListener('click', e => deleteOnePage(editorPages.indexOf(page), e));
+
+  // Select on click (Shift+click selects a range)
+  div.addEventListener('click', e => {
+    const visible = editorPages.filter(p => !p.deleted);
+    if (e.shiftKey && selectAnchor && visible.includes(selectAnchor)) {
+      const [a, b] = [visible.indexOf(selectAnchor), visible.indexOf(page)].sort((x, y) => x - y);
+      visible.slice(a, b + 1).forEach(p => { p.selected = true; });
+      renderEditorGrid();
+      return;
+    }
+    page.selected = !page.selected;
+    selectAnchor = page;
+    div.classList.toggle('selected', page.selected);
+    updateInfo();
+  });
+
+  // Drag-and-drop
+  div.addEventListener('dragstart', e => {
+    dragSrcPage = page;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'page');
+    setTimeout(() => {
+      div.classList.add('dragging');
+      document.getElementById('editor-grid').classList.add('is-dragging');
+    }, 0);
+  });
+
+  div.addEventListener('dragend', () => {
+    dragSrcPage = null;
+    div.classList.remove('dragging');
+    document.getElementById('editor-grid').classList.remove('is-dragging');
+    clearDragOver();
+  });
+
+  div.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!dragSrcPage || dragSrcPage === page) return;
+    clearDragOver();
+    div.classList.add('drag-over');
+  });
+
+  div.addEventListener('drop', e => {
+    e.preventDefault();
+    clearDragOver();
+    if (!dragSrcPage || dragSrcPage === page) return;
+    const rect = div.getBoundingClientRect();
+    const insertBefore = e.clientX < rect.left + rect.width / 2;
+    const moved = dragSrcPage;
+    dragSrcPage = null;
+    applyEdit(() => {
+      editorPages.splice(editorPages.indexOf(moved), 1);
+      const target = editorPages.indexOf(page);
+      editorPages.splice(insertBefore ? target : target + 1, 0, moved);
+    });
+  });
+
+  page.el = div;
+  return div;
+}
+
+function clearDragOver() {
+  document.querySelectorAll('.page-thumb.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function updateThumb(page, displayIdx, srcName) {
+  const div = page.el || createThumb(page);
+  div.classList.toggle('selected', page.selected);
+  div.querySelector('.thumb-img-wrap').style.cssText = thumbWrapStyle(page);
+  const img = div.querySelector('img');
+  img.style.cssText = thumbImgStyle(page);
+  if (page.b64 && img.getAttribute('src') !== page.b64) img.src = page.b64;
+  const badge = div.querySelector('.rotation-badge');
+  badge.textContent = page.rotation ? `↻ ${page.rotation}°` : '';
+  badge.style.display = page.rotation ? '' : 'none';
+  div.querySelector('.thumb-num').textContent = displayIdx + 1;
+  const src = div.querySelector('.thumb-src');
+  src.textContent = srcName;
+  src.title = srcName ? page.srcFile : '';
+  src.style.display = srcName ? '' : 'none';
+  return div;
+}
+
+// End drop zone — lets pages be dragged to the very last position
+const endZone = document.createElement('div');
+endZone.className = 'end-drop-zone';
+endZone.textContent = '放置於此';
+endZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  endZone.classList.add('drag-active');
+});
+endZone.addEventListener('dragleave', () => endZone.classList.remove('drag-active'));
+endZone.addEventListener('drop', e => {
+  e.preventDefault();
+  endZone.classList.remove('drag-active');
+  if (!dragSrcPage) return;
+  const moved = dragSrcPage;
+  dragSrcPage = null;
+  applyEdit(() => editorPages.push(editorPages.splice(editorPages.indexOf(moved), 1)[0]));
+});
+
 function renderEditorGrid() {
   const grid = document.getElementById('editor-grid');
-  grid.innerHTML = '';
-
   const visible = editorPages.filter(p => !p.deleted);
   if (!visible.length) {
     grid.innerHTML = '<div class="editor-placeholder"><p>所有頁面已刪除</p></div>';
@@ -320,113 +466,12 @@ function renderEditorGrid() {
     return;
   }
 
-  // Check if pages come from more than one source file
-  const srcFiles = [...new Set(visible.map(p => p.srcFile))];
-  const multiSrc = srcFiles.length > 1;
-
-  visible.forEach((page, displayIdx) => {
-    const realIdx = editorPages.indexOf(page);
-    const srcName = multiSrc ? fileNameOf(page.srcFile) : '';
-
-    const div = document.createElement('div');
-    div.className = 'page-thumb' + (page.selected ? ' selected' : '');
-    div.draggable = true;
-
-    div.innerHTML = `
-      <div class="thumb-img-wrap" style="${thumbWrapStyle(page)}">
-        <img src="${page.b64}" draggable="false" style="${thumbImgStyle(page)}">
-        ${page.rotation ? `<div class="rotation-badge">↻ ${page.rotation}°</div>` : ''}
-        <div class="thumb-overlay">
-          <button class="thumb-btn" title="旋轉 90°" onclick="rotateOnePage(${realIdx},event)">↻</button>
-          <button class="thumb-btn delete" title="刪除" onclick="deleteOnePage(${realIdx},event)">✕</button>
-        </div>
-      </div>
-      <div class="thumb-footer">
-        <span class="thumb-num">${displayIdx + 1}</span>
-        ${srcName ? `<span class="thumb-src" title="${escapeHtml(page.srcFile)}">${escapeHtml(srcName)}</span>` : ''}
-      </div>`;
-
-    // Select on click
-    div.addEventListener('click', e => {
-      if (e.shiftKey && selectAnchor && visible.includes(selectAnchor)) {
-        const [a, b] = [visible.indexOf(selectAnchor), displayIdx].sort((x, y) => x - y);
-        visible.slice(a, b + 1).forEach(p => { p.selected = true; });
-        renderEditorGrid();
-        return;
-      }
-      page.selected = !page.selected;
-      selectAnchor = page;
-      div.classList.toggle('selected', page.selected);
-      updateInfo();
-    });
-
-    // Drag-and-drop
-    div.addEventListener('dragstart', e => {
-      dragSrcIdx = realIdx;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(realIdx));
-      setTimeout(() => {
-        div.classList.add('dragging');
-        document.getElementById('editor-grid').classList.add('is-dragging');
-      }, 0);
-    });
-
-    div.addEventListener('dragend', () => {
-      dragSrcIdx = null;
-      div.classList.remove('dragging');
-      document.getElementById('editor-grid').classList.remove('is-dragging');
-      document.querySelectorAll('.page-thumb').forEach(el => el.classList.remove('drag-over'));
-    });
-
-    div.addEventListener('dragover', e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (dragSrcIdx === realIdx) return;
-      document.querySelectorAll('.page-thumb').forEach(el => el.classList.remove('drag-over'));
-      div.classList.add('drag-over');
-    });
-
-    div.addEventListener('drop', e => {
-      e.preventDefault();
-      document.querySelectorAll('.page-thumb').forEach(el => el.classList.remove('drag-over'));
-      if (dragSrcIdx === null || dragSrcIdx === realIdx) return;
-      const rect = div.getBoundingClientRect();
-      const insertBefore = e.clientX < rect.left + rect.width / 2;
-      const from = dragSrcIdx;
-      dragSrcIdx = null;
-      applyEdit(() => {
-        const moved = editorPages.splice(from, 1)[0];
-        let insertAt = from < realIdx ? realIdx - 1 : realIdx;
-        if (!insertBefore) insertAt = Math.min(insertAt + 1, editorPages.length);
-        editorPages.splice(insertAt, 0, moved);
-      });
-    });
-
-    grid.appendChild(div);
-  });
-
-  // End drop zone — lets pages be dragged to the very last position
-  const endZone = document.createElement('div');
-  endZone.className = 'end-drop-zone';
-  endZone.textContent = '放置於此';
-  endZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    endZone.classList.add('drag-active');
-  });
-  endZone.addEventListener('dragleave', () => {
-    endZone.classList.remove('drag-active');
-  });
-  endZone.addEventListener('drop', e => {
-    e.preventDefault();
-    endZone.classList.remove('drag-active');
-    if (dragSrcIdx === null) return;
-    const from = dragSrcIdx;
-    dragSrcIdx = null;
-    applyEdit(() => editorPages.push(editorPages.splice(from, 1)[0]));
-  });
-  grid.appendChild(endZone);
-
+  // Show the source file name only when pages come from more than one PDF
+  const multiSrc = new Set(visible.map(p => p.srcFile)).size > 1;
+  grid.replaceChildren(
+    ...visible.map((page, i) => updateThumb(page, i, multiSrc ? fileNameOf(page.srcFile) : '')),
+    endZone,
+  );
   updateInfo();
 }
 
