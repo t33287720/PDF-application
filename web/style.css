@@ -446,6 +446,7 @@ html, body {
 .opt-inline { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .opt-wide { flex: 1 1 100%; }
 .opt-num { width: 64px; }
+.opt-num-label { width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
 .opt-select, .opt-input {
   padding: 5px 8px;
   border: 1.5px solid var(--border);

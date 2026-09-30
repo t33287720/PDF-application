@@ -322,6 +322,10 @@ def test_export_images(api, tmp_path):
     api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
     api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
     assert {"mydoc_001.jpg", "mydoc_001 (2).jpg"} <= set(os.listdir(out_dir))
+    # lower JPG quality -> smaller file
+    api.export_images(pages_of(src, 0), str(out_dir), "jpg", 150, None, "q", quality=95)
+    api.export_images(pages_of(src, 0), str(out_dir), "jpg", 150, None, "q", quality=20)
+    assert os.path.getsize(out_dir / "q_001 (2).jpg") < os.path.getsize(out_dir / "q_001.jpg")
 
 
 def test_split_pdf(api, tmp_path):

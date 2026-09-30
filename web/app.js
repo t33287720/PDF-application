@@ -886,6 +886,13 @@ async function runSplit() {
 
 setupModal('images-modal', closeImageExport);
 
+document.getElementById('img-format').addEventListener('change', e => {
+  document.getElementById('img-quality-row').style.display = e.target.value === 'jpg' ? '' : 'none';
+});
+document.getElementById('img-quality').addEventListener('input', e => {
+  document.getElementById('img-quality-label').textContent = e.target.value;
+});
+
 function openImageExport() {
   const hasSel = editorPages.some(p => p.selected && !p.deleted);
   const scope = document.getElementById('img-scope');
@@ -921,6 +928,7 @@ async function exportImages() {
     document.getElementById('img-format').value,
     Number(document.getElementById('img-dpi').value),
     options, exportPrefix(pages),
+    Number(document.getElementById('img-quality').value),
   ) || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);

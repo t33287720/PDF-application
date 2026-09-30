@@ -482,7 +482,8 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
-    def export_images(self, pages, folder, fmt="png", dpi=150, options=None, prefix=""):
+    def export_images(self, pages, folder, fmt="png", dpi=150, options=None, prefix="",
+                      quality=90):
         """Render each page to <folder>/<prefix>_001.<fmt>… (never overwriting);
         watermark / page number options apply, the PDF-only ones don't."""
         try:
@@ -501,7 +502,7 @@ class API:
                         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
                         path = _unique_path(os.path.join(folder, f"{prefix}_{i:03d}.{fmt}"))
                         if fmt == "jpg":
-                            pix.save(path, jpg_quality=90)
+                            pix.save(path, jpg_quality=int(quality))
                         else:
                             pix.save(path)
                         count += 1
