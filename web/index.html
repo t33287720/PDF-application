@@ -102,6 +102,24 @@
       </section>
 
       <section class="opt-section">
+        <label class="opt-toggle"><input type="checkbox" id="opt-watermark"> 浮水印</label>
+        <div class="opt-body" data-for="opt-watermark">
+          <input type="text" id="opt-wm-text" class="opt-input opt-wide" placeholder="浮水印文字，例如：機密" maxlength="60">
+          <label class="opt-inline">大小
+            <select id="opt-wm-size" class="opt-select">
+              <option value="small">小</option>
+              <option value="medium" selected>中</option>
+              <option value="large">大</option>
+            </select>
+          </label>
+          <label class="opt-inline">透明度
+            <input type="range" id="opt-wm-opacity" min="0.1" max="0.6" step="0.05" value="0.25">
+          </label>
+          <label class="opt-toggle"><input type="checkbox" id="opt-wm-diagonal" checked> 斜放</label>
+        </div>
+      </section>
+
+      <section class="opt-section">
         <label class="opt-row">壓縮圖片
           <select id="opt-compress" class="opt-select">
             <option value="none">不壓縮</option>

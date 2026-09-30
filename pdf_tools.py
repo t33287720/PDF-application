@@ -5,6 +5,7 @@ import os
 import sys
 import base64
 import json
+import math
 import secrets
 import threading
 import webview
@@ -96,6 +97,50 @@ def _remap_toc(pages, open_docs):
             level = min(level, toc[-1][0] + 1 if toc else 1)
             toc.append([level, title, n])
     return toc
+
+
+_fonts = {}
+
+
+def _font_for(text):
+    """Base-14 Helvetica for plain ASCII, the built-in CJK font otherwise."""
+    name = "helv" if text.isascii() else "cjk"
+    if name not in _fonts:
+        _fonts[name] = fitz.Font(name)
+    return _fonts[name]
+
+
+def _stamp_text(page, text, fontsize, pos, angle=0.0, align="center",
+                color=(0, 0, 0), opacity=1.0):
+    """Write text centred vertically on `pos`, both given as the page is
+    displayed (after its /Rotate), turned `angle` degrees counter-clockwise."""
+    font = _font_for(text)
+    width = font.text_length(text, fontsize)
+    pivot = fitz.Point(pos) * page.derotation_matrix
+    dx = {"left": 0, "center": -width / 2, "right": -width}[align]
+    rad = math.radians(angle)   # y points down, so this turns counter-clockwise
+    turn = fitz.Matrix(math.cos(rad), math.sin(rad), -math.sin(rad), math.cos(rad), 0, 0)
+    r = page.rotation_matrix
+    upright = fitz.Matrix(r.a, r.b, r.c, r.d, 0, 0)   # undo /Rotate for the glyphs
+    writer = fitz.TextWriter(page.rect)
+    writer.append(fitz.Point(pivot.x + dx, pivot.y + fontsize * 0.35), text,
+                  font=font, fontsize=fontsize)
+    writer.write_text(page, color=color, opacity=opacity, morph=(pivot, turn * upright))
+
+
+WATERMARK_SPAN = {"small": 0.35, "medium": 0.55, "large": 0.75}
+
+
+def _add_watermark(page, wm):
+    """wm: {text, size: small|medium|large, opacity: 0-1, diagonal: bool}"""
+    text = wm["text"]
+    w, h = page.rect.width, page.rect.height
+    diagonal = wm.get("diagonal", True)
+    angle = math.degrees(math.atan2(h, w)) if diagonal else 0.0
+    span = WATERMARK_SPAN.get(wm.get("size"), 0.55) * (math.hypot(w, h) if diagonal else w)
+    fontsize = span / max(_font_for(text).text_length(text, 1), 1e-6)
+    _stamp_text(page, text, fontsize, (w / 2, h / 2), angle=angle,
+                color=(0.5, 0.5, 0.5), opacity=float(wm.get("opacity", 0.25)))
 
 
 class API:
@@ -280,6 +325,12 @@ class API:
             if toc:
                 new_doc.set_toc(toc)
 
+            watermark = options.get("watermark")
+            if watermark and watermark.get("text"):
+                for pg in new_doc:
+                    _add_watermark(pg, watermark)
+                new_doc.subset_fonts()   # embed only the glyphs actually used
+
             save_opts = dict(garbage=4, deflate=True)
             level = COMPRESS_LEVELS.get(options.get("compress"))
             if level:
@@ -317,7 +368,8 @@ class API:
         """
         pages   : list of {src, orig_idx, rotation}
         out     : output path (empty = auto)
-        options : {password, compress: "none" | "medium" | "high"}
+        options : {password, compress: "none" | "medium" | "high",
+                   watermark: {text, size, opacity, diagonal}}
         """
         options = options or {}
         password = options.get("password", "")

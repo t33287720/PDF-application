@@ -366,12 +366,22 @@ function getOutputOptions() {
     opts.password = document.getElementById('opt-password').value;
     if (!opts.password) { showToast('請輸入加密密碼！', false); return null; }
   }
+  if (document.getElementById('opt-watermark').checked) {
+    const text = document.getElementById('opt-wm-text').value.trim();
+    if (!text) { showToast('請輸入浮水印文字！', false); return null; }
+    opts.watermark = {
+      text,
+      size:     document.getElementById('opt-wm-size').value,
+      opacity:  Number(document.getElementById('opt-wm-opacity').value),
+      diagonal: document.getElementById('opt-wm-diagonal').checked,
+    };
+  }
   return opts;
 }
 
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none'].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);

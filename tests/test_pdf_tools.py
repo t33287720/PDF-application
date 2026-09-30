@@ -193,3 +193,46 @@ def test_corrupt_settings_fall_back(api):
     with open(pdf_tools._settings_path(), "w") as f:
         f.write("{not json")
     assert pdf_tools.API().get_zoom() == 100
+
+
+# ── overlays (watermark / page numbers) ──────────────────────────────────────
+
+def _render_gray(page):
+    return page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5), colorspace=fitz.csGRAY)
+
+
+def _same_as_upright(stamp, rotation):
+    """Stamp a rotated page and an unrotated page of the displayed size the
+    same way; rendered, they must look identical."""
+    rotated = fitz.open().new_page(width=595, height=842)
+    rotated.set_rotation(rotation)
+    upright = fitz.open().new_page(width=rotated.rect.width, height=rotated.rect.height)
+    stamp(rotated)
+    stamp(upright)
+    a, b = _render_gray(rotated), _render_gray(upright)
+    assert (a.width, a.height) == (b.width, b.height)
+    return sum(abs(x - y) for x, y in zip(a.samples, b.samples)) / len(a.samples) < 0.05
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_stamp_text_follows_page_rotation(rotation):
+    def stamp(page):
+        w, h = page.rect.width, page.rect.height
+        pdf_tools._stamp_text(page, "Bottom 12", 30, (w / 2, h - 40))
+        pdf_tools._stamp_text(page, "R", 30, (w - 40, 40), align="right")
+        pdf_tools._stamp_text(page, "DRAFT", 80, (w / 2, h / 2), angle=40)
+    assert _same_as_upright(stamp, rotation)
+
+
+def test_watermark(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    out = str(tmp_path / "wm.pdf")
+    wm = {"text": "機密 DRAFT", "size": "large", "opacity": 0.3, "diagonal": True}
+    assert api.save_edited_pdf(pages_of(src, 0, 1) + pages_of(src, 2, rotation=90), out,
+                               {"watermark": wm})["ok"]
+    doc = fitz.open(out)
+    assert all("機密 DRAFT" in pg.get_text() for pg in doc)
+    doc.close()
+    # the CJK font is subset, not embedded whole (~3.5 MB)
+    assert os.path.getsize(out) < 200_000
+    assert _same_as_upright(lambda pg: pdf_tools._add_watermark(pg, wm), 90)
