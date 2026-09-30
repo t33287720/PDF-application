@@ -143,6 +143,32 @@ def _add_watermark(page, wm):
                 color=(0.5, 0.5, 0.5), opacity=float(wm.get("opacity", 0.25)))
 
 
+PAGE_NUMBER_MARGIN = 28   # distance from the page edge, in points
+
+
+def _add_page_number(page, text, position="bottom-center", fontsize=11):
+    """position: {top|bottom}-{left|center|right}, relative to the page as displayed"""
+    w, h = page.rect.width, page.rect.height
+    vertical, horizontal = position.split("-")
+    y = PAGE_NUMBER_MARGIN if vertical == "top" else h - PAGE_NUMBER_MARGIN
+    x = {"left": PAGE_NUMBER_MARGIN, "center": w / 2, "right": w - PAGE_NUMBER_MARGIN}[horizontal]
+    _stamp_text(page, text, fontsize, (x, y), align=horizontal)
+
+
+def _add_page_numbers(doc, spec):
+    """spec: {format ('{n}', '{total}' placeholders), position, start, skip_first, size}"""
+    fmt = spec.get("format") or "{n}"
+    start = int(spec.get("start", 1))
+    skip = 1 if spec.get("skip_first") else 0
+    last = start + len(doc) - skip - 1
+    for i, page in enumerate(doc):
+        if i < skip:
+            continue
+        text = fmt.replace("{n}", str(start + i - skip)).replace("{total}", str(last))
+        _add_page_number(page, text, spec.get("position", "bottom-center"),
+                         float(spec.get("size", 11)))
+
+
 class API:
 
     def __init__(self):
@@ -329,6 +355,10 @@ class API:
             if watermark and watermark.get("text"):
                 for pg in new_doc:
                     _add_watermark(pg, watermark)
+            page_numbers = options.get("page_numbers")
+            if page_numbers:
+                _add_page_numbers(new_doc, page_numbers)
+            if watermark or page_numbers:
                 new_doc.subset_fonts()   # embed only the glyphs actually used
 
             save_opts = dict(garbage=4, deflate=True)
@@ -369,7 +399,8 @@ class API:
         pages   : list of {src, orig_idx, rotation}
         out     : output path (empty = auto)
         options : {password, compress: "none" | "medium" | "high",
-                   watermark: {text, size, opacity, diagonal}}
+                   watermark: {text, size, opacity, diagonal},
+                   page_numbers: {format, position, start, skip_first, size}}
         """
         options = options or {}
         password = options.get("password", "")

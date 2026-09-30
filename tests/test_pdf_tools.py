@@ -236,3 +236,26 @@ def test_watermark(api, tmp_path):
     # the CJK font is subset, not embedded whole (~3.5 MB)
     assert os.path.getsize(out) < 200_000
     assert _same_as_upright(lambda pg: pdf_tools._add_watermark(pg, wm), 90)
+
+
+def test_page_numbers(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 4)
+    out = str(tmp_path / "pn.pdf")
+    spec = {"format": "第 {n} 頁，共 {total} 頁", "position": "bottom-right",
+            "start": 1, "skip_first": True}
+    pages = pages_of(src, 0, 1) + pages_of(src, 2, rotation=90) + pages_of(src, 3)
+    assert api.save_edited_pdf(pages, out, {"page_numbers": spec})["ok"]
+    doc = fitz.open(out)
+    assert "第" not in doc[0].get_text()            # cover skipped
+    assert "第 1 頁，共 3 頁" in doc[1].get_text()
+    assert "第 3 頁，共 3 頁" in doc[3].get_text()
+    # on the rotated page the number still sits at the displayed bottom-right
+    words = doc[2].get_text("words")
+    num = fitz.Rect(words[-1][:4]) * doc[2].rotation_matrix
+    assert num.x1 > doc[2].rect.width * 0.8 and num.y1 > doc[2].rect.height * 0.9
+    doc.close()
+
+
+@pytest.mark.parametrize("rotation", [90, 270])
+def test_page_number_follows_rotation(rotation):
+    assert _same_as_upright(lambda pg: pdf_tools._add_page_number(pg, "12 / 30", "bottom-right"), rotation)

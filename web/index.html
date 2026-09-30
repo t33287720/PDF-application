@@ -120,6 +120,35 @@
       </section>
 
       <section class="opt-section">
+        <label class="opt-toggle"><input type="checkbox" id="opt-pagenum"> 頁碼</label>
+        <div class="opt-body" data-for="opt-pagenum">
+          <label class="opt-inline">位置
+            <select id="opt-pn-position" class="opt-select">
+              <option value="bottom-center">下方置中</option>
+              <option value="bottom-right">下方靠右</option>
+              <option value="bottom-left">下方靠左</option>
+              <option value="top-center">上方置中</option>
+              <option value="top-right">上方靠右</option>
+            </select>
+          </label>
+          <label class="opt-inline">格式
+            <select id="opt-pn-format" class="opt-select">
+              <option value="{n}">1</option>
+              <option value="{n} / {total}">1 / 10</option>
+              <option value="- {n} -">- 1 -</option>
+              <option value="第 {n} 頁">第 1 頁</option>
+              <option value="第 {n} 頁，共 {total} 頁">第 1 頁，共 10 頁</option>
+              <option value="Page {n} of {total}">Page 1 of 10</option>
+            </select>
+          </label>
+          <label class="opt-inline">起始
+            <input type="number" id="opt-pn-start" class="opt-input opt-num" value="1" min="0">
+          </label>
+          <label class="opt-toggle"><input type="checkbox" id="opt-pn-skip"> 首頁（封面）不加</label>
+        </div>
+      </section>
+
+      <section class="opt-section">
         <label class="opt-row">壓縮圖片
           <select id="opt-compress" class="opt-select">
             <option value="none">不壓縮</option>

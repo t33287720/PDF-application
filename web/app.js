@@ -376,12 +376,22 @@ function getOutputOptions() {
       diagonal: document.getElementById('opt-wm-diagonal').checked,
     };
   }
+  if (document.getElementById('opt-pagenum').checked) {
+    const start = parseInt(document.getElementById('opt-pn-start').value, 10);
+    if (!(start >= 0)) { showToast('頁碼起始值必須是 0 以上的整數！', false); return null; }
+    opts.page_numbers = {
+      format:     document.getElementById('opt-pn-format').value,
+      position:   document.getElementById('opt-pn-position').value,
+      start,
+      skip_first: document.getElementById('opt-pn-skip').checked,
+    };
+  }
   return opts;
 }
 
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none', opts.watermark].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);
