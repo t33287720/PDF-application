@@ -24,6 +24,39 @@ def _auto_name(directory, prefix):
         i += 1
 
 
+def _page_runs(pages):
+    """Group pages into (src, first, last) runs of ascending consecutive indices."""
+    runs = []
+    for p in pages:
+        src, idx = p["src"], p["orig_idx"]
+        if runs and runs[-1][0] == src and runs[-1][2] == idx - 1:
+            runs[-1][2] = idx
+        else:
+            runs.append([src, idx, idx])
+    return runs
+
+
+def _remap_toc(pages, open_docs):
+    """Carry source bookmarks over to the pages' new positions; drop removed ones."""
+    new_pos = {}
+    for n, p in enumerate(pages, start=1):
+        new_pos.setdefault((p["src"], p["orig_idx"]), n)
+    toc, seen = [], set()
+    for p in pages:
+        src = p["src"]
+        if src in seen:
+            continue
+        seen.add(src)
+        for level, title, page_no, *_ in open_docs[src].get_toc(simple=False):
+            n = new_pos.get((src, page_no - 1))
+            if n is None:
+                continue
+            # Parents may have been dropped: keep levels contiguous from 1
+            level = min(level, toc[-1][0] + 1 if toc else 1)
+            toc.append([level, title, n])
+    return toc
+
+
 class API:
 
     def __init__(self):
@@ -141,15 +174,18 @@ class API:
             try:
                 try:
                     for p in pages:
-                        src = p["src"]
-                        if src not in open_docs:
-                            open_docs[src] = self._open_src(src)
-                        new_doc.insert_pdf(open_docs[src],
-                                           from_page=p["orig_idx"],
-                                           to_page=p["orig_idx"])
+                        if p["src"] not in open_docs:
+                            open_docs[p["src"]] = self._open_src(p["src"])
+                    # Insert consecutive pages of the same source in one call,
+                    # which also keeps internal links between them
+                    for src, start, end in _page_runs(pages):
+                        new_doc.insert_pdf(open_docs[src], from_page=start, to_page=end)
+                    for pg, p in zip(new_doc, pages):
                         if p["rotation"]:
-                            pg = new_doc[-1]
                             pg.set_rotation((pg.rotation + p["rotation"]) % 360)
+                    toc = _remap_toc(pages, open_docs)
+                    if toc:
+                        new_doc.set_toc(toc)
                 finally:
                     for doc in open_docs.values():
                         doc.close()
@@ -159,7 +195,7 @@ class API:
                     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                         tmp_path = tmp.name
                     try:
-                        new_doc.save(tmp_path)
+                        new_doc.save(tmp_path, garbage=4, deflate=True)
                         new_doc.close()
                         new_doc = None        # mark closed so outer finally skips it
                         pdf = Pdf.open(tmp_path)
@@ -173,7 +209,7 @@ class API:
                         if os.path.exists(tmp_path):
                             os.unlink(tmp_path)
                 else:
-                    new_doc.save(out_path)
+                    new_doc.save(out_path, garbage=4, deflate=True)
                     new_doc.close()
                     new_doc = None            # mark closed
             finally:
