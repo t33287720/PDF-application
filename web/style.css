@@ -433,3 +433,64 @@ html, body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #c1cdd9; border-radius: 3px; }
+
+/* ── Dragging files in from the OS ───────────────────────── */
+body.file-drag .editor-grid {
+  outline: 3px dashed var(--blue);
+  outline-offset: -10px;
+  background: rgba(59,130,246,0.06);
+}
+
+/* ── Page preview ────────────────────────────────────────── */
+.preview-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,0.88);
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+.preview-overlay.show { display: flex; }
+.preview-figure {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 90vw;
+  height: 92vh;
+}
+.preview-figure .spinner { position: absolute; }
+.preview-figure.ready .spinner { display: none; }
+#preview-img {
+  max-width: 82vw;
+  max-height: 84vh;
+  background: white;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  visibility: hidden;
+}
+.preview-figure.ready #preview-img { visibility: visible; }
+/* Rotated a quarter turn: the limits swap axes */
+#preview-img.quarter { max-width: 84vh; max-height: 82vw; }
+#preview-caption {
+  position: absolute;
+  bottom: 0;
+  color: rgba(255,255,255,0.75);
+  font-size: 13px;
+}
+.preview-nav, .preview-close {
+  position: absolute;
+  border: none;
+  background: rgba(255,255,255,0.12);
+  color: white;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.15s;
+}
+.preview-nav:hover, .preview-close:hover { background: rgba(255,255,255,0.25); }
+.preview-nav:disabled { opacity: 0.2; cursor: default; }
+.preview-nav { top: 50%; transform: translateY(-50%); width: 44px; height: 44px; font-size: 28px; line-height: 1; }
+.preview-nav.prev { left: 18px; }
+.preview-nav.next { right: 18px; }
+.preview-close { top: 16px; right: 18px; width: 36px; height: 36px; font-size: 16px; }

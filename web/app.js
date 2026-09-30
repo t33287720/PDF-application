@@ -270,6 +270,32 @@ async function loadThumbnails(path, pages) {
   }
 }
 
+// ── Files dropped from the OS (paths are delivered by the Python side) ──────
+
+async function handleDroppedFiles(paths) {
+  document.body.classList.remove('file-drag');
+  // With nothing open the first file opens and the rest are appended;
+  // otherwise every dropped file is appended to the current pages
+  for (const path of paths) await loadPdf(path, editorPages.length > 0);
+}
+
+// Highlight the window while files (not pages) are dragged over it
+let fileDragDepth = 0;
+const isFileDrag = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+document.addEventListener('dragenter', e => {
+  if (!isFileDrag(e)) return;
+  fileDragDepth++;
+  document.body.classList.add('file-drag');
+});
+document.addEventListener('dragleave', e => {
+  if (!isFileDrag(e)) return;
+  if (--fileDragDepth <= 0) { fileDragDepth = 0; document.body.classList.remove('file-drag'); }
+});
+document.addEventListener('drop', () => {
+  fileDragDepth = 0;
+  document.body.classList.remove('file-drag');
+});
+
 // True while the output path came from the save dialog (not typed by hand)
 let outputFromDialog = false;
 document.getElementById('output-path').addEventListener('input', () => { outputFromDialog = false; });
@@ -370,6 +396,8 @@ function createThumb(page) {
     div.classList.toggle('selected', page.selected);
     updateInfo();
   });
+
+  div.addEventListener('dblclick', () => openPreview(page));
 
   // Drag-and-drop
   div.addEventListener('dragstart', e => {
@@ -521,10 +549,60 @@ function editorRotateSelected() {
   applyEdit(() => targets.forEach(p => p.rotation = (p.rotation + 90) % 360));
 }
 
+// ── Page preview ──────────────────────────────────────────────────────────────
+
+let previewPage = null;
+let previewToken = 0;
+
+async function openPreview(page) {
+  previewPage = page;
+  const token = ++previewToken;
+  const visible = editorPages.filter(p => !p.deleted);
+  const pos = visible.indexOf(page);
+  const fig = document.querySelector('.preview-figure');
+  const img = document.getElementById('preview-img');
+  document.getElementById('preview-modal').classList.add('show');
+  document.querySelector('.preview-nav.prev').disabled = pos <= 0;
+  document.querySelector('.preview-nav.next').disabled = pos >= visible.length - 1;
+  document.getElementById('preview-caption').textContent =
+    `第 ${pos + 1} / ${visible.length} 頁　${fileNameOf(page.srcFile)} 原第 ${page.origIndex + 1} 頁`;
+  fig.classList.remove('ready');
+
+  const res = await pywebview.api.get_preview(page.srcFile, page.origIndex);
+  if (token !== previewToken) return;  // user moved on to another page
+  if (!res || !res.ok) { closePreview(); showToast(res ? res.msg : '預覽失敗', false); return; }
+  img.src = res.b64;
+  img.style.transform = page.rotation ? `rotate(${page.rotation}deg)` : '';
+  img.classList.toggle('quarter', page.rotation % 180 !== 0);
+  fig.classList.add('ready');
+}
+
+function stepPreview(delta) {
+  const visible = editorPages.filter(p => !p.deleted);
+  const next = visible[visible.indexOf(previewPage) + delta];
+  if (next) openPreview(next);
+}
+
+function closePreview() {
+  previewToken++;
+  previewPage = null;
+  document.getElementById('preview-modal').classList.remove('show');
+}
+
+document.getElementById('preview-modal').addEventListener('click', e => {
+  if (e.target.id === 'preview-modal' || e.target.classList.contains('preview-figure')) closePreview();
+});
+
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 
 document.addEventListener('keydown', e => {
   if (document.querySelector('.modal-overlay.show')) return;
+  if (previewPage) {
+    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closePreview(); }
+    else if (e.key === 'ArrowLeft')  stepPreview(-1);
+    else if (e.key === 'ArrowRight') stepPreview(1);
+    return;
+  }
   const inField = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
   const ctrl    = e.ctrlKey || e.metaKey;
   const key     = e.key.toLowerCase();

@@ -4,14 +4,17 @@
 import os
 import sys
 import base64
+import json
 import tempfile
 import threading
 import webview
+from webview.dom import DOMEventHandler
 import fitz  # PyMuPDF
 from pikepdf import Pdf, Permissions, Encryption
 
 
 THUMB_PX    = 240   # thumbnail render width (2x the 120px display size)
+PREVIEW_PX  = 1600  # preview render size of the page's longer side
 
 _zoom_level = 100
 _is_dirty   = False
@@ -249,6 +252,21 @@ class API:
             if new_doc is not None:
                 new_doc.close()
 
+    def get_preview(self, path, index):
+        try:
+            with self._lock:
+                doc = self._open_src(path)
+                try:
+                    page = doc[index]
+                    zoom = PREVIEW_PX / max(page.rect.width, page.rect.height, 1)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                    b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=85)).decode()
+                finally:
+                    doc.close()
+            return {"ok": True, "b64": f"data:image/jpeg;base64,{b64}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def save_edited_pdf(self, pages, out, password):
         """
         pages    : list of {src, orig_idx, rotation}
@@ -273,6 +291,23 @@ class API:
             return {"ok": True, "path": out_path, "msg": f"儲存成功！已儲存：{out_path}"}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
+
+
+def _bind_file_drop(window):
+    """Files dropped from the OS: only the Python side gets their full paths."""
+    def on_drop(e):
+        files = e.get("dataTransfer", {}).get("files", [])
+        paths = [f["pywebviewFullPath"] for f in files
+                 if f.get("pywebviewFullPath", "").lower().endswith(".pdf")]
+        if paths:
+            window.evaluate_js(f"handleDroppedFiles({json.dumps(paths)})")
+        elif files:
+            window.evaluate_js("showToast('只能拖入 PDF 檔案！', false)")
+
+    doc_events = window.dom.document.events
+    doc_events.dragenter += DOMEventHandler(lambda e: None, True, False)
+    doc_events.dragover  += DOMEventHandler(lambda e: None, True, False, debounce=500)
+    doc_events.drop      += DOMEventHandler(on_drop, True, False)
 
 
 def _on_closing():
@@ -321,4 +356,4 @@ if __name__ == "__main__":
         min_size=(720, 500),
     )
     window.events.closing += _on_closing
-    webview.start()
+    webview.start(_bind_file_drop, window)

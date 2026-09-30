@@ -58,7 +58,7 @@
   <div id="editor-grid" class="editor-grid">
     <div class="editor-placeholder">
       <p>點擊「開啟 PDF」載入檔案</p>
-      <p class="hint">支援同時附加多個 PDF、拖拉重新排序、單頁旋轉或刪除</p>
+      <p class="hint">也可以直接把 PDF 檔拖進視窗；支援拖拉重新排序、雙擊預覽、單頁旋轉或刪除</p>
     </div>
   </div>
 
@@ -77,6 +77,18 @@
         <button id="confirm-yes" class="btn-primary">確定放棄</button>
       </div>
     </div>
+  </div>
+
+  <!-- Page preview (double-click a thumbnail) -->
+  <div id="preview-modal" class="preview-overlay">
+    <button class="preview-nav prev" onclick="stepPreview(-1)" title="上一頁 (←)">‹</button>
+    <figure class="preview-figure">
+      <div class="spinner"></div>
+      <img id="preview-img" alt="">
+      <figcaption id="preview-caption"></figcaption>
+    </figure>
+    <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)">›</button>
+    <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)">✕</button>
   </div>
 
   <!-- Password prompt modal (for encrypted source PDFs) -->
