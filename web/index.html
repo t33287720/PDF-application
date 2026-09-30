@@ -41,6 +41,7 @@
         <button class="btn-tool" onclick="toggleMenu('export-menu', event)">匯出 ▾</button>
         <div class="dropdown-menu">
           <button onclick="extractSelected()">擷取選取頁為 PDF…</button>
+          <button onclick="openSplit()">分割成多個 PDF…</button>
           <button onclick="openImageExport()">轉成圖片…</button>
         </div>
       </div>
@@ -167,6 +168,26 @@
 
       <div class="modal-btns">
         <button class="btn-primary" onclick="closeOptions()">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Split into several PDFs -->
+  <div id="split-modal" class="modal-overlay">
+    <div class="modal-box options-box">
+      <h3>分割 PDF</h3>
+      <p class="opt-hint">頁碼依目前的頁面順序；輸出選項也會套用到每個檔案</p>
+      <section class="opt-section" id="split-modes">
+        <label class="opt-toggle"><input type="radio" name="split-mode" value="ranges" checked> 依頁碼範圍，每段一個檔案</label>
+        <input type="text" id="split-ranges" class="opt-input split-indent" placeholder="例如：1-3, 4-6, 7">
+        <label class="opt-toggle"><input type="radio" name="split-mode" value="every">
+          每 <input type="number" id="split-every" class="opt-input opt-num" value="2" min="1"> 頁一個檔案</label>
+        <label class="opt-toggle"><input type="radio" name="split-mode" value="single"> 每頁一個檔案</label>
+      </section>
+      <p class="split-summary" id="split-summary"></p>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="closeSplit()">取消</button>
+        <button class="btn-primary" id="split-go" onclick="runSplit()">選擇資料夾並分割</button>
       </div>
     </div>
   </div>

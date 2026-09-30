@@ -790,6 +790,98 @@ async function saveEditor() {
   }
 }
 
+// ── Split ─────────────────────────────────────────────────────────────────────
+
+setupModal('split-modal', closeSplit);
+
+function openSplit() {
+  document.getElementById('split-modal').classList.add('show');
+  updateSplitSummary();
+  document.getElementById('split-ranges').focus();
+}
+
+function closeSplit() {
+  document.getElementById('split-modal').classList.remove('show');
+}
+
+// "1-3, 5, 9-7" -> [[0,1,2], [4], [8,7,6]] (0-based), or an error message
+function parseRanges(text, total) {
+  const parts = text.split(/[,，;；]/).map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return { error: '請輸入頁碼範圍' };
+  const groups = [];
+  for (const part of parts) {
+    const m = part.match(/^(\d+)(?:\s*[-–~]\s*(\d+))?$/);
+    if (!m) return { error: `無法辨識「${part}」` };
+    const a = Number(m[1]), b = m[2] ? Number(m[2]) : a;
+    if (a < 1 || b < 1 || a > total || b > total) return { error: `「${part}」超出範圍（1 – ${total}）` };
+    const step = a <= b ? 1 : -1;
+    const group = [];
+    for (let n = a; n !== b + step; n += step) group.push(n - 1);
+    groups.push(group);
+  }
+  return { groups };
+}
+
+// Page index groups for the chosen mode, or { error }
+function splitGroups() {
+  const total = editorPages.filter(p => !p.deleted).length;
+  const mode  = document.querySelector('input[name="split-mode"]:checked').value;
+  if (mode === 'ranges') return parseRanges(document.getElementById('split-ranges').value, total);
+  const size = mode === 'single' ? 1 : parseInt(document.getElementById('split-every').value, 10);
+  if (!(size >= 1)) return { error: '頁數必須是 1 以上的整數' };
+  const groups = [];
+  for (let i = 0; i < total; i += size) {
+    groups.push(Array.from({ length: Math.min(size, total - i) }, (_, k) => i + k));
+  }
+  return { groups };
+}
+
+function updateSplitSummary() {
+  const res = splitGroups();
+  const summary = document.getElementById('split-summary');
+  summary.textContent = res.error || `將產生 ${res.groups.length} 個檔案`;
+  summary.classList.toggle('err', !!res.error);
+  document.getElementById('split-go').disabled = !!res.error;
+}
+
+document.getElementById('split-modal').addEventListener('input', updateSplitSummary);
+document.getElementById('split-modal').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT') runSplit();
+});
+document.getElementById('split-modal').addEventListener('change', updateSplitSummary);
+// Typing in a mode's field selects that mode
+document.getElementById('split-ranges').addEventListener('focus', () => {
+  document.querySelector('input[name="split-mode"][value="ranges"]').checked = true;
+});
+document.getElementById('split-every').addEventListener('focus', () => {
+  document.querySelector('input[name="split-mode"][value="every"]').checked = true;
+});
+
+async function runSplit() {
+  const res = splitGroups();
+  if (res.error) return;
+  const options = getOutputOptions();
+  if (!options) { closeSplit(); openOptions(); return; }
+  const folder = await pywebview.api.browse_folder();
+  if (!folder) return;
+  closeSplit();
+
+  const visible = editorPages.filter(p => !p.deleted);
+  const prefix  = exportPrefix(visible);
+  const groups  = res.groups.map(idx => {
+    const first = idx[0] + 1, last = idx[idx.length - 1] + 1;
+    return {
+      name:  `${prefix}_${first === last ? first : `${first}-${last}`}`,
+      pages: buildPageList(idx.map(i => visible[i])),
+    };
+  });
+  setStatus(`分割成 ${groups.length} 個檔案中…`, true);
+  const out = await pywebview.api.split_pdf(groups, folder, options)
+    || { ok: false, msg: '發生未知錯誤' };
+  setStatus(out.msg, out.ok);
+  showToast(out.msg, out.ok);
+}
+
 // ── Export as images ──────────────────────────────────────────────────────────
 
 setupModal('images-modal', closeImageExport);

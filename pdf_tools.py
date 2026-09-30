@@ -462,6 +462,26 @@ class API:
         finally:
             new_doc.close()
 
+    def split_pdf(self, groups, folder, options=None):
+        """groups: [{name, pages}]; each is saved as <folder>/<name>.pdf, never
+        overwriting an existing file."""
+        try:
+            if not groups:
+                return {"ok": False, "msg": "沒有要輸出的檔案！"}
+            if not os.path.isdir(folder):
+                return {"ok": False, "msg": f"資料夾不存在：{folder}"}
+            count = 0
+            with self._lock:
+                self._close_thumb_doc()
+                for group in groups:
+                    name = _safe_prefix(group.get("name"), "part")
+                    path = _unique_path(os.path.join(folder, f"{name}.pdf"))
+                    self._build_and_save(group["pages"], path, options or {})
+                    count += 1
+            return {"ok": True, "count": count, "msg": f"已分割成 {count} 個檔案：{folder}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def export_images(self, pages, folder, fmt="png", dpi=150, options=None, prefix=""):
         """Render each page to <folder>/<prefix>_001.<fmt>… (never overwriting);
         watermark / page number options apply, the PDF-only ones don't."""

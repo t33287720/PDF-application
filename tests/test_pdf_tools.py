@@ -322,3 +322,20 @@ def test_export_images(api, tmp_path):
     api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
     api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
     assert {"mydoc_001.jpg", "mydoc_001 (2).jpg"} <= set(os.listdir(out_dir))
+
+
+def test_split_pdf(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 5)
+    out_dir = tmp_path / "parts"
+    out_dir.mkdir()
+    (out_dir / "a_1-2.pdf").write_bytes(b"existing")          # must not be overwritten
+    groups = [{"name": "a_1-2", "pages": pages_of(src, 0, 1)},
+              {"name": "a_5-4", "pages": pages_of(src, 4, 3)},
+              {"name": "a_3", "pages": pages_of(src, 2) + [blank()]}]
+    res = api.split_pdf(groups, str(out_dir), {"password": "pw"})
+    assert res["ok"] and res["count"] == 3
+    assert (out_dir / "a_1-2.pdf").read_bytes() == b"existing"
+    assert texts(str(out_dir / "a_1-2 (2).pdf"), "pw") == [("Page 1", 0), ("Page 2", 0)]
+    assert texts(str(out_dir / "a_5-4.pdf"), "pw") == [("Page 5", 0), ("Page 4", 0)]
+    assert texts(str(out_dir / "a_3.pdf"), "pw") == [("Page 3", 0), ("", 0)]
+    assert not api.split_pdf(groups, str(tmp_path / "missing"))["ok"]

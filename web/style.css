@@ -457,6 +457,9 @@ html, body {
 }
 .opt-select:focus, .opt-input:focus { border-color: var(--blue); }
 .opt-row .opt-select { min-width: 170px; }
+.split-indent { margin-left: 24px; }
+.modal-box p.split-summary { font-size: 13px; margin: 4px 0 18px; color: var(--text-muted); }
+.modal-box p.split-summary.err { color: var(--red); }
 
 /* ── End drop zone ───────────────────────────────────────── */
 .end-drop-zone {
