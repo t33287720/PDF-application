@@ -34,10 +34,10 @@
 
 ## 使用方式
 
-### 一般使用者（Windows）
+到 [Releases](https://github.com/t33287720/PDF-application/releases/latest) 下載執行檔，無需安裝任何東西。
 
-直接下載 `PDF_Tools.exe` 執行，無需安裝任何東西。  
-需要 Windows 10 / 11（內建 Edge WebView2）。
+- **Windows**：`PDF_Tools.exe`，需要 Windows 10 / 11（內建 Edge WebView2）
+- **Linux**：`PDF_Tools_Linux`，需要 WebKitGTK（見下方「環境需求」的系統套件），下載後 `chmod +x` 再執行
 
 ---
 

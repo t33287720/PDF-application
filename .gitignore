@@ -1,8 +1,9 @@
 # Virtual environment
 .venv/
 
-# PyInstaller build output (暫存，非產出物)
+# PyInstaller build output（執行檔發佈在 GitHub Releases）
 build/
+dist/
 
 # Python cache
 __pycache__/
