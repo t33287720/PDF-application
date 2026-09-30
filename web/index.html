@@ -23,7 +23,7 @@
 
     <!-- 左：檔案操作 -->
     <div class="toolbar-group">
-      <button class="btn-primary" onclick="openNewPdf()">開啟 PDF</button>
+      <button class="btn-primary" onclick="openNewPdf()" title="Ctrl+O">開啟 PDF</button>
       <button class="btn-tool" id="btn-append" onclick="appendPdf()" disabled>附加 PDF</button>
     </div>
 
@@ -31,9 +31,11 @@
 
     <!-- 中：頁面操作（有檔案後才顯示） -->
     <div class="toolbar-group" id="page-tools" style="display:none">
-      <button class="btn-tool" onclick="editorSelectAll()">全選</button>
-      <button class="btn-tool" onclick="editorRotateSelected()">↻ 旋轉選取</button>
-      <button class="btn-tool danger" onclick="editorDeleteSelected()">✕ 刪除選取</button>
+      <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" disabled>↶</button>
+      <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" disabled>↷</button>
+      <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
+      <button class="btn-tool" onclick="editorRotateSelected()" title="R">↻ 旋轉選取</button>
+      <button class="btn-tool danger" onclick="editorDeleteSelected()" title="Delete">✕ 刪除選取</button>
       <button class="btn-tool" onclick="extractSelected()">擷取選取頁</button>
     </div>
 
@@ -47,7 +49,7 @@
       <div class="toolbar-sep"></div>
       <input type="text" id="output-path" class="path-input" placeholder="輸出路徑（可選）…">
       <button class="btn-tool" onclick="browseOutput()">瀏覽</button>
-      <button class="btn-primary" onclick="saveEditor()">儲存</button>
+      <button class="btn-primary" onclick="saveEditor()" title="Ctrl+S">儲存</button>
     </div>
 
   </div>

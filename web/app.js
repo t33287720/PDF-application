@@ -75,7 +75,10 @@ document.getElementById('confirm-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('confirm-modal')) hideConfirm();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') hideConfirm();
+  if (e.key === 'Escape' && document.getElementById('confirm-modal').classList.contains('show')) {
+    hideConfirm();
+    e.stopImmediatePropagation();  // don't also clear the page selection
+  }
 });
 
 // ── Password prompt modal ─────────────────────────────────────────────────────
@@ -107,6 +110,59 @@ function askPassword(msg) {
 
 let editorPages = []; // [{srcFile, origIndex, b64, rotation, selected, deleted}]
 let dragSrcIdx  = null;
+let selectAnchor = null;  // last clicked page, start of a Shift+click range
+
+// ── Undo / Redo ───────────────────────────────────────────────────────────────
+
+const UNDO_LIMIT = 100;
+const undoStack = [];
+const redoStack = [];
+
+function snapshot() {
+  return editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted }));
+}
+
+function restoreSnapshot(snap) {
+  editorPages = snap.map(s => {
+    s.page.rotation = s.rotation;
+    s.page.deleted  = s.deleted;
+    return s.page;
+  });
+  markDirty();
+  renderEditorGrid();
+}
+
+// Call before every change to page order / rotation / deletion
+function pushUndo() {
+  undoStack.push(snapshot());
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack.length = 0;
+}
+
+// Record an undo step, apply the change, and refresh
+function applyEdit(change) {
+  pushUndo();
+  change();
+  markDirty();
+  renderEditorGrid();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  restoreSnapshot(undoStack.pop());
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  restoreSnapshot(redoStack.pop());
+}
+
+function updateUndoButtons() {
+  document.getElementById('btn-undo').disabled = !undoStack.length;
+  document.getElementById('btn-redo').disabled = !redoStack.length;
+}
 
 // ── File operations ───────────────────────────────────────────────────────────
 
@@ -168,8 +224,16 @@ async function loadPdf(path, append) {
     deleted:   false,
   }));
 
-  editorPages = append ? [...editorPages, ...newPages] : newPages;
-  if (append) markDirty(); else markClean();
+  if (append) {
+    pushUndo();
+    editorPages = [...editorPages, ...newPages];
+    markDirty();
+  } else {
+    editorPages = newPages;
+    undoStack.length = redoStack.length = 0;
+    selectAnchor = null;
+    markClean();
+  }
 
   // Show toolbar elements
   document.getElementById('btn-append').disabled = false;
@@ -283,8 +347,15 @@ function renderEditorGrid() {
       </div>`;
 
     // Select on click
-    div.addEventListener('click', () => {
+    div.addEventListener('click', e => {
+      if (e.shiftKey && selectAnchor && visible.includes(selectAnchor)) {
+        const [a, b] = [visible.indexOf(selectAnchor), displayIdx].sort((x, y) => x - y);
+        visible.slice(a, b + 1).forEach(p => { p.selected = true; });
+        renderEditorGrid();
+        return;
+      }
       page.selected = !page.selected;
+      selectAnchor = page;
       div.classList.toggle('selected', page.selected);
       updateInfo();
     });
@@ -321,13 +392,14 @@ function renderEditorGrid() {
       if (dragSrcIdx === null || dragSrcIdx === realIdx) return;
       const rect = div.getBoundingClientRect();
       const insertBefore = e.clientX < rect.left + rect.width / 2;
-      const moved = editorPages.splice(dragSrcIdx, 1)[0];
-      let insertAt = dragSrcIdx < realIdx ? realIdx - 1 : realIdx;
-      if (!insertBefore) insertAt = Math.min(insertAt + 1, editorPages.length);
-      editorPages.splice(insertAt, 0, moved);
+      const from = dragSrcIdx;
       dragSrcIdx = null;
-      markDirty();
-      renderEditorGrid();
+      applyEdit(() => {
+        const moved = editorPages.splice(from, 1)[0];
+        let insertAt = from < realIdx ? realIdx - 1 : realIdx;
+        if (!insertBefore) insertAt = Math.min(insertAt + 1, editorPages.length);
+        editorPages.splice(insertAt, 0, moved);
+      });
     });
 
     grid.appendChild(div);
@@ -349,11 +421,9 @@ function renderEditorGrid() {
     e.preventDefault();
     endZone.classList.remove('drag-active');
     if (dragSrcIdx === null) return;
-    const moved = editorPages.splice(dragSrcIdx, 1)[0];
-    editorPages.push(moved);
+    const from = dragSrcIdx;
     dragSrcIdx = null;
-    markDirty();
-    renderEditorGrid();
+    applyEdit(() => editorPages.push(editorPages.splice(from, 1)[0]));
   });
   grid.appendChild(endZone);
 
@@ -361,6 +431,7 @@ function renderEditorGrid() {
 }
 
 function updateInfo() {
+  updateUndoButtons();
   const active   = editorPages.filter(p => !p.deleted);
   const selected = active.filter(p => p.selected);
   let text = `共 ${active.length} 頁`;
@@ -372,16 +443,12 @@ function updateInfo() {
 
 function rotateOnePage(idx, e) {
   e.stopPropagation();
-  editorPages[idx].rotation = (editorPages[idx].rotation + 90) % 360;
-  markDirty();
-  renderEditorGrid();
+  applyEdit(() => { editorPages[idx].rotation = (editorPages[idx].rotation + 90) % 360; });
 }
 
 function deleteOnePage(idx, e) {
   e.stopPropagation();
-  editorPages[idx].deleted = true;
-  markDirty();
-  renderEditorGrid();
+  applyEdit(() => { editorPages[idx].deleted = true; });
 }
 
 function editorSelectAll() {
@@ -391,21 +458,49 @@ function editorSelectAll() {
   renderEditorGrid();
 }
 
+function editorClearSelection() {
+  editorPages.forEach(p => p.selected = false);
+  renderEditorGrid();
+}
+
 function editorDeleteSelected() {
   const targets = editorPages.filter(p => p.selected && !p.deleted);
   if (!targets.length) { showToast('請先選取要刪除的頁面！', false); return; }
-  targets.forEach(p => p.deleted = true);
-  markDirty();
-  renderEditorGrid();
+  applyEdit(() => targets.forEach(p => { p.deleted = true; p.selected = false; }));
+  showToast(`已刪除 ${targets.length} 頁（Ctrl+Z 可復原）`, true);
 }
 
 function editorRotateSelected() {
   const targets = editorPages.filter(p => p.selected && !p.deleted);
   if (!targets.length) { showToast('請先選取要旋轉的頁面！', false); return; }
-  targets.forEach(p => p.rotation = (p.rotation + 90) % 360);
-  markDirty();
-  renderEditorGrid();
+  applyEdit(() => targets.forEach(p => p.rotation = (p.rotation + 90) % 360));
 }
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if (document.querySelector('.modal-overlay.show')) return;
+  const inField = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+  const ctrl    = e.ctrlKey || e.metaKey;
+  const key     = e.key.toLowerCase();
+  const loaded  = editorPages.length > 0;
+
+  if (ctrl && key === 'o') { e.preventDefault(); openNewPdf(); return; }
+  if (ctrl && key === 's') { e.preventDefault(); if (loaded) saveEditor(); return; }
+  if (ctrl && key === 'r') { e.preventDefault(); return; }  // don't reload the page and lose edits
+  if (inField || !loaded) return;
+
+  if (ctrl && key === 'z' && !e.shiftKey)              { e.preventDefault(); undo(); }
+  else if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+  else if (ctrl && key === 'a') {
+    e.preventDefault();
+    editorPages.forEach(p => { if (!p.deleted) p.selected = true; });
+    renderEditorGrid();
+  }
+  else if (!ctrl && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); editorDeleteSelected(); }
+  else if (!ctrl && key === 'r')      editorRotateSelected();
+  else if (e.key === 'Escape')        editorClearSelection();
+});
 
 // ── Save / Extract ────────────────────────────────────────────────────────────
 
