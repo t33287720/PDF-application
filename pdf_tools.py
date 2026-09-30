@@ -16,8 +16,31 @@ from pikepdf import Pdf, Permissions, Encryption
 THUMB_PX    = 240   # thumbnail render width (2x the 120px display size)
 PREVIEW_PX  = 1600  # preview render size of the page's longer side
 
-_zoom_level = 100
 _is_dirty   = False
+
+
+def _settings_path():
+    base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "PDF_Tools", "settings.json")
+
+
+def _load_settings():
+    try:
+        with open(_settings_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_settings(settings):
+    try:
+        path = _settings_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass   # settings are a convenience; never fail an action over them
 
 
 def _auto_name(directory, prefix):
@@ -71,6 +94,17 @@ class API:
         # thread-safe, so every fitz operation goes through this lock
         self._lock = threading.RLock()
         self._thumb_doc = None  # (path, doc) kept open between thumbnail batches
+        self._settings = _load_settings()
+
+    def _remember_dir(self, path):
+        folder = os.path.dirname(path)
+        if folder and self._settings.get("last_dir") != folder:
+            self._settings["last_dir"] = folder
+            _save_settings(self._settings)
+
+    def _last_dir(self):
+        folder = self._settings.get("last_dir", "")
+        return folder if os.path.isdir(folder) else ""
 
     def _close_thumb_doc(self):
         if self._thumb_doc:
@@ -91,11 +125,12 @@ class API:
         _is_dirty = bool(value)
 
     def get_zoom(self):
-        return _zoom_level
+        return self._settings.get("zoom", 100)
 
     def apply_zoom(self, level):
-        global _zoom_level
-        _zoom_level = level
+        if self._settings.get("zoom") != level:
+            self._settings["zoom"] = level
+            _save_settings(self._settings)
         # GTK (Linux)
         try:
             import webview.platforms.gtk as gtk_platform
@@ -129,19 +164,26 @@ class API:
     def browse_open(self):
         result = webview.windows[0].create_file_dialog(
             webview.FileDialog.OPEN,
+            directory=self._last_dir(),
             file_types=("PDF Files (*.pdf)",)
         )
-        return result[0] if result else ""
+        if not result:
+            return ""
+        self._remember_dir(result[0])
+        return result[0]
 
     def browse_save(self, default_name="output"):
         result = webview.windows[0].create_file_dialog(
             webview.FileDialog.SAVE,
+            directory=self._last_dir(),
             save_filename=f"{default_name}.pdf",
             file_types=("PDF Files (*.pdf)",)
         )
         if not result:
             return ""
-        return result[0] if isinstance(result, (list, tuple)) else result
+        path = result[0] if isinstance(result, (list, tuple)) else result
+        self._remember_dir(path)
+        return path
 
     def check_output(self, path):
         """Normalise an output path and report whether it already exists."""
