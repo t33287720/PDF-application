@@ -128,6 +128,21 @@ class API:
             return ""
         return result[0] if isinstance(result, (list, tuple)) else result
 
+    def check_output(self, path):
+        """Normalise an output path and report whether it already exists."""
+        path = os.path.abspath(os.path.expanduser(path.strip()))
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        if not os.path.isdir(os.path.dirname(path)):
+            return {"ok": False, "msg": f"資料夾不存在：{os.path.dirname(path)}"}
+        return {
+            "ok": True,
+            "path": path,
+            "exists": os.path.exists(path),
+            # WinForms' SaveFileDialog already asks before overwriting; GTK's doesn't
+            "dialog_confirms_overwrite": sys.platform == "win32",
+        }
+
     # ── Editor ────────────────────────────────────────────────────────────────
 
     def open_pdf_for_editor(self, path, password=""):
@@ -137,6 +152,7 @@ class API:
             doc = fitz.open(path)
             try:
                 if doc.needs_pass:
+                    password = password or self._passwords.get(path, "")
                     if not password:
                         return {"ok": False, "need_password": True, "msg": "此 PDF 需要密碼"}
                     if not doc.authenticate(password):
@@ -216,7 +232,11 @@ class API:
                 if new_doc is not None:
                     new_doc.close()
 
-            return {"ok": True, "msg": f"儲存成功！已儲存：{out_path}"}
+            if password:
+                self._passwords[out_path] = password
+            else:
+                self._passwords.pop(out_path, None)
+            return {"ok": True, "path": out_path, "msg": f"儲存成功！已儲存：{out_path}"}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 

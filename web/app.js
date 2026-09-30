@@ -60,8 +60,9 @@ window.onbeforeunload = e => {
 
 // ── Confirm modal ─────────────────────────────────────────────────────────────
 
-function showConfirm(msg, onYes) {
+function showConfirm(msg, onYes, yesLabel = '確定放棄') {
   document.getElementById('confirm-msg').textContent = msg;
+  document.getElementById('confirm-yes').textContent = yesLabel;
   document.getElementById('confirm-modal').classList.add('show');
   document.getElementById('confirm-yes').onclick = () => { hideConfirm(); onYes(); };
 }
@@ -140,7 +141,7 @@ async function loadPdf(path, append) {
     grid.innerHTML = '<div class="editor-loading"><div class="spinner"></div><span>載入頁面中，請稍候…</span></div>';
   }
 
-  const fileName = path.split(/[/\\]/).pop();
+  const fileName = fileNameOf(path);
   let res = await pywebview.api.open_pdf_for_editor(path, '');
   while (res && res.need_password) {
     const pw = await askPassword(`「${fileName}」${res.msg}`);
@@ -181,9 +182,41 @@ async function loadPdf(path, append) {
   setStatus(`${action}，共 ${editorPages.filter(p=>!p.deleted).length} 頁`, true);
 }
 
+// True while the output path came from the save dialog (not typed by hand)
+let outputFromDialog = false;
+document.getElementById('output-path').addEventListener('input', () => { outputFromDialog = false; });
+
 async function browseOutput() {
   const path = await pywebview.api.browse_save('edited_output');
-  if (path) document.getElementById('output-path').value = path;
+  if (path) {
+    document.getElementById('output-path').value = path;
+    outputFromDialog = true;
+  }
+}
+
+function fileNameOf(path) {
+  return path.split(/[/\\]/).pop();
+}
+
+// Validates the output path; resolves to the normalised path, or '' if the
+// user backed out (invalid path, or declined to overwrite an existing file)
+async function resolveOutput(path, fromDialog, allowSource = true) {
+  const chk = await pywebview.api.check_output(path);
+  if (!chk.ok) { showToast(chk.msg, false); return ''; }
+  if (!allowSource && editorPages.some(p => p.srcFile === chk.path)) {
+    showToast('不能覆寫正在編輯的來源檔案，請另存新檔', false);
+    return '';
+  }
+  if (!chk.exists || (fromDialog && chk.dialog_confirms_overwrite)) return chk.path;
+  return new Promise(resolve => {
+    showConfirm(`「${fileNameOf(chk.path)}」已存在，確定要覆寫嗎？`, () => resolve(chk.path), '覆寫');
+    // Cancel / backdrop / Escape all go through hideConfirm
+    const modal = document.getElementById('confirm-modal');
+    const obs = new MutationObserver(() => {
+      if (!modal.classList.contains('show')) { obs.disconnect(); resolve(''); }
+    });
+    obs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+  });
 }
 
 // ── Encrypt toggle ────────────────────────────────────────────────────────────
@@ -229,7 +262,7 @@ function renderEditorGrid() {
 
   visible.forEach((page, displayIdx) => {
     const realIdx = editorPages.indexOf(page);
-    const srcName = multiSrc ? page.srcFile.split(/[/\\]/).pop() : '';
+    const srcName = multiSrc ? fileNameOf(page.srcFile) : '';
 
     const div = document.createElement('div');
     div.className = 'page-thumb' + (page.selected ? ' selected' : '');
@@ -392,26 +425,42 @@ async function saveEditor() {
   const password  = encrypted ? document.getElementById('encrypt-pw').value : '';
   if (encrypted && !password) { showToast('請輸入加密密碼！', false); return; }
 
-  let out = document.getElementById('output-path').value.trim();
+  const outInput = document.getElementById('output-path');
+  let out = outInput.value.trim();
+  let fromDialog = outputFromDialog;
   if (!out) {
     out = await pywebview.api.browse_save('edited_output');
     if (!out) return;
-    document.getElementById('output-path').value = out;
+    fromDialog = true;
   }
+  out = await resolveOutput(out, fromDialog);
+  if (!out) return;
+  outInput.value = out;
+  outputFromDialog = fromDialog;
 
   setStatus('儲存中…', true);
   const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, password)
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);
-  if (res.ok) markClean();
+  if (!res.ok) return;
+  markClean();
+
+  // Overwrote one of the sources: its page indices no longer match, so
+  // continue editing from the freshly saved file instead
+  if (editorPages.some(p => p.srcFile === res.path)) {
+    await loadPdf(res.path, false);
+    setStatus(res.msg, true);
+  }
 }
 
 async function extractSelected() {
   const selected = editorPages.filter(p => !p.deleted && p.selected);
   if (!selected.length) { showToast('請先選取要擷取的頁面！', false); return; }
 
-  const out = await pywebview.api.browse_save('extract_output');
+  let out = await pywebview.api.browse_save('extract_output');
+  if (!out) return;
+  out = await resolveOutput(out, true, false);
   if (!out) return;
 
   setStatus('擷取中…', true);
