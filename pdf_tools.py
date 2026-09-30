@@ -81,6 +81,22 @@ def _auto_name(directory, prefix):
         i += 1
 
 
+def _unique_path(path):
+    """`path`, or `name (2).ext`, `name (3).ext`… if it is taken."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    i = 2
+    while os.path.exists(f"{stem} ({i}){ext}"):
+        i += 1
+    return f"{stem} ({i}){ext}"
+
+
+def _safe_prefix(name, default="page"):
+    name = "".join(c for c in (name or "") if c not in '\\/:*?"<>|').strip()
+    return name or default
+
+
 def _page_runs(pages):
     """Group pages into [src, first, last] runs of ascending consecutive indices.
     A blank page is a run of its own: [None, width, height]."""
@@ -308,6 +324,17 @@ class API:
         self._remember_dir(path)
         return path
 
+    def browse_folder(self):
+        result = webview.windows[0].create_file_dialog(
+            webview.FileDialog.FOLDER,
+            directory=self._last_dir(),
+        )
+        if not result:
+            return ""
+        folder = result[0] if isinstance(result, (list, tuple)) else result
+        self._remember_dir(os.path.join(folder, ""))
+        return folder
+
     def check_output(self, path):
         """Normalise an output path and report whether it already exists."""
         path = os.path.abspath(os.path.expanduser(path.strip()))
@@ -372,8 +399,10 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
-    def _build_and_save(self, pages, out_path, options):
-        # Build new document (pages may come from different source files)
+    def _build_doc(self, pages, options):
+        """Assemble the pages (which may come from different source files)
+        into a new in-memory document, with watermark / page numbers applied.
+        The caller closes it."""
         open_docs = {}
         new_doc = fitz.open()
         try:
@@ -407,7 +436,14 @@ class API:
                 _add_page_numbers(new_doc, page_numbers)
             if watermark or page_numbers:
                 new_doc.subset_fonts()   # embed only the glyphs actually used
+            return new_doc
+        except Exception:
+            new_doc.close()
+            raise
 
+    def _build_and_save(self, pages, out_path, options):
+        new_doc = self._build_doc(pages, options)
+        try:
             save_opts = dict(garbage=4, deflate=True)
             level = COMPRESS_LEVELS.get(options.get("compress"))
             if level:
@@ -419,12 +455,41 @@ class API:
                 # A separate random owner password keeps the permission
                 # restrictions enforceable (with owner == user they'd be moot)
                 save_opts.update(encryption=fitz.PDF_ENCRYPT_AES_256,
-                               user_pw=password,
-                               owner_pw=secrets.token_urlsafe(24),
-                               permissions=ENCRYPTED_PERMS)
+                                 user_pw=password,
+                                 owner_pw=secrets.token_urlsafe(24),
+                                 permissions=ENCRYPTED_PERMS)
             new_doc.save(out_path, **save_opts)
         finally:
             new_doc.close()
+
+    def export_images(self, pages, folder, fmt="png", dpi=150, options=None, prefix=""):
+        """Render each page to <folder>/<prefix>_001.<fmt>… (never overwriting);
+        watermark / page number options apply, the PDF-only ones don't."""
+        try:
+            if not pages:
+                return {"ok": False, "msg": "沒有頁面可匯出！"}
+            if not os.path.isdir(folder):
+                return {"ok": False, "msg": f"資料夾不存在：{folder}"}
+            fmt = "jpg" if fmt == "jpg" else "png"
+            zoom = float(dpi) / 72
+            prefix = _safe_prefix(prefix)
+            count = 0
+            with self._lock:
+                doc = self._build_doc(pages, options or {})
+                try:
+                    for i, page in enumerate(doc, start=1):
+                        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                        path = _unique_path(os.path.join(folder, f"{prefix}_{i:03d}.{fmt}"))
+                        if fmt == "jpg":
+                            pix.save(path, jpg_quality=90)
+                        else:
+                            pix.save(path)
+                        count += 1
+                finally:
+                    doc.close()
+            return {"ok": True, "count": count, "msg": f"已匯出 {count} 張圖片到：{folder}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
 
     def get_preview(self, path, index):
         try:

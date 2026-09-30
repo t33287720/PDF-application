@@ -70,16 +70,38 @@ function hideConfirm() {
   document.getElementById('confirm-modal').classList.remove('show');
 }
 
-// Close modal on backdrop click or Escape key
-document.getElementById('confirm-modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('confirm-modal')) hideConfirm();
-});
+// Escape closes the open dialog; each dialog registers how it closes
+const modalClosers = {};
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('confirm-modal').classList.contains('show')) {
-    hideConfirm();
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.modal-overlay.show')].pop();
+  if (open && modalClosers[open.id]) {
+    modalClosers[open.id]();
     e.stopImmediatePropagation();  // don't also clear the page selection
   }
 });
+
+// Close on backdrop click too
+function setupModal(id, close) {
+  modalClosers[id] = close;
+  const modal = document.getElementById(id);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+}
+setupModal('confirm-modal', hideConfirm);
+
+// ── Dropdown menus ────────────────────────────────────────────────────────────
+
+function toggleMenu(id, e) {
+  e.stopPropagation();
+  const menu = document.getElementById(id);
+  const willOpen = !menu.classList.contains('open');
+  closeMenus();
+  menu.classList.toggle('open', willOpen);
+}
+function closeMenus() {
+  document.querySelectorAll('.dropdown.open').forEach(m => m.classList.remove('open'));
+}
+document.addEventListener('click', closeMenus);   // also after picking an item
 
 // ── Password prompt modal ─────────────────────────────────────────────────────
 
@@ -95,8 +117,10 @@ function askPassword(msg) {
     const done = value => {
       modal.classList.remove('show');
       input.onkeydown = null;
+      delete modalClosers['pw-modal'];
       resolve(value);
     };
+    modalClosers['pw-modal'] = () => done(null);
     document.getElementById('pw-modal-ok').onclick     = () => done(input.value);
     document.getElementById('pw-modal-cancel').onclick = () => done(null);
     input.onkeydown = e => {
@@ -300,12 +324,22 @@ document.addEventListener('drop', () => {
 
 // True while the output path came from the save dialog (not typed by hand)
 let outputFromDialog = false;
-document.getElementById('output-path').addEventListener('input', () => { outputFromDialog = false; });
+const outputPathInput = document.getElementById('output-path');
+outputPathInput.addEventListener('input', () => {
+  outputFromDialog = false;
+  outputPathInput.title = outputPathInput.value;
+});
+
+// The field is narrow in small windows, so the full path also goes in the tooltip
+function setOutputPath(path) {
+  outputPathInput.value = path;
+  outputPathInput.title = path;
+}
 
 async function browseOutput() {
   const path = await pywebview.api.browse_save('edited_output');
   if (path) {
-    document.getElementById('output-path').value = path;
+    setOutputPath(path);
     outputFromDialog = true;
   }
 }
@@ -345,9 +379,8 @@ optionsModal.addEventListener('change', e => {
   const body = optionsModal.querySelector(`.opt-body[data-for="${e.target.id}"]`);
   if (body) body.classList.toggle('show', e.target.checked);
 });
-optionsModal.addEventListener('click', e => { if (e.target === optionsModal) closeOptions(); });
+setupModal('options-modal', () => closeOptions());
 optionsModal.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeOptions();
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') closeOptions();
 });
 
@@ -729,8 +762,7 @@ async function saveEditor() {
   const options = getOutputOptions();
   if (!options) { openOptions(); return; }
 
-  const outInput = document.getElementById('output-path');
-  let out = outInput.value.trim();
+  let out = outputPathInput.value.trim();
   let fromDialog = outputFromDialog;
   if (!out) {
     out = await pywebview.api.browse_save('edited_output');
@@ -739,7 +771,7 @@ async function saveEditor() {
   }
   out = await resolveOutput(out, fromDialog);
   if (!out) return;
-  outInput.value = out;
+  setOutputPath(out);
   outputFromDialog = fromDialog;
 
   setStatus('儲存中…', true);
@@ -756,6 +788,50 @@ async function saveEditor() {
     await loadPdf(res.path, false);
     setStatus(res.msg, true);
   }
+}
+
+// ── Export as images ──────────────────────────────────────────────────────────
+
+setupModal('images-modal', closeImageExport);
+
+function openImageExport() {
+  const hasSel = editorPages.some(p => p.selected && !p.deleted);
+  const scope = document.getElementById('img-scope');
+  scope.querySelector('[value="selected"]').disabled = !hasSel;
+  scope.value = hasSel ? 'selected' : 'all';
+  document.getElementById('images-modal').classList.add('show');
+}
+
+function closeImageExport() {
+  document.getElementById('images-modal').classList.remove('show');
+}
+
+// File name prefix for exports: the first real page's source name, sans extension
+function exportPrefix(pages) {
+  const first = pages.find(p => !p.blank);
+  return first ? first.srcName.replace(/\.[^.]+$/, '') : 'page';
+}
+
+async function exportImages() {
+  const all   = document.getElementById('img-scope').value === 'all';
+  const pages = editorPages.filter(p => !p.deleted && (all || p.selected));
+  if (!pages.length) { showToast('沒有頁面可匯出！', false); return; }
+  const options = getOutputOptions();
+  if (!options) { closeImageExport(); openOptions(); return; }
+
+  const folder = await pywebview.api.browse_folder();
+  if (!folder) return;
+  closeImageExport();
+
+  setStatus(`匯出 ${pages.length} 張圖片中…`, true);
+  const res = await pywebview.api.export_images(
+    buildPageList(pages), folder,
+    document.getElementById('img-format').value,
+    Number(document.getElementById('img-dpi').value),
+    options, exportPrefix(pages),
+  ) || { ok: false, msg: '發生未知錯誤' };
+  setStatus(res.msg, res.ok);
+  showToast(res.msg, res.ok);
 }
 
 async function extractSelected() {

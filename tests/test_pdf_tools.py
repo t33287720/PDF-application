@@ -305,3 +305,20 @@ def test_open_broken_image(api, tmp_path):
     bad = tmp_path / "broken.jpg"
     bad.write_bytes(b"not an image")
     assert not api.open_pdf_for_editor(str(bad))["ok"]
+
+
+def test_export_images(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3, landscape={2})
+    out_dir = tmp_path / "imgs"
+    out_dir.mkdir()
+    pages = pages_of(src, 0) + [blank(200, 100)] + pages_of(src, 2, rotation=90)
+    res = api.export_images(pages, str(out_dir), "png", 72, {"page_numbers": {}}, "my/doc")
+    assert res["ok"] and res["count"] == 3
+    names = sorted(os.listdir(out_dir))
+    assert names == ["mydoc_001.png", "mydoc_002.png", "mydoc_003.png"]
+    sizes = [(pix.width, pix.height) for pix in (fitz.Pixmap(str(out_dir / n)) for n in names)]
+    assert sizes == [(595, 842), (200, 100), (595, 842)]   # landscape page turned upright
+    # a second export never overwrites
+    api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
+    api.export_images(pages_of(src, 0), str(out_dir), "jpg", 50, None, "mydoc")
+    assert {"mydoc_001.jpg", "mydoc_001 (2).jpg"} <= set(os.listdir(out_dir))

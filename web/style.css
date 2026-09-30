@@ -159,6 +159,8 @@ html, body {
   outline: none;
 }
 .path-input:focus { border-color: var(--blue); }
+/* Keep the toolbar on one line in the default 960px window */
+@media (max-width: 1100px) { .path-input { width: 100px; } }
 
 /* ── Editor grid ─────────────────────────────────────────── */
 .editor-grid {
@@ -374,6 +376,38 @@ html, body {
   gap: 10px;
 }
 
+/* ── Dropdown menu ───────────────────────────────────────── */
+.dropdown { position: relative; }
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 170px;
+  padding: 4px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  z-index: 500;
+}
+.dropdown.open .dropdown-menu { display: block; }
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dropdown-menu button:hover { background: var(--content-bg); }
+
 /* ── Output options ──────────────────────────────────────── */
 .opt-badge {
   display: none;
@@ -422,6 +456,7 @@ html, body {
   outline: none;
 }
 .opt-select:focus, .opt-input:focus { border-color: var(--blue); }
+.opt-row .opt-select { min-width: 170px; }
 
 /* ── End drop zone ───────────────────────────────────────── */
 .end-drop-zone {

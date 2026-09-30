@@ -34,10 +34,16 @@
       <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" disabled>↶</button>
       <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
-      <button class="btn-tool" onclick="editorRotateSelected()" title="R">↻ 旋轉選取</button>
-      <button class="btn-tool danger" onclick="editorDeleteSelected()" title="Delete">✕ 刪除選取</button>
+      <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
+      <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
       <button class="btn-tool" onclick="insertBlankPage()" title="插入到選取頁之後（未選取則加在最後）">＋ 空白頁</button>
-      <button class="btn-tool" onclick="extractSelected()">擷取選取頁</button>
+      <div class="dropdown" id="export-menu">
+        <button class="btn-tool" onclick="toggleMenu('export-menu', event)">匯出 ▾</button>
+        <div class="dropdown-menu">
+          <button onclick="extractSelected()">擷取選取頁為 PDF…</button>
+          <button onclick="openImageExport()">轉成圖片…</button>
+        </div>
+      </div>
     </div>
 
     <!-- 右：儲存區（有檔案後才顯示） -->
@@ -161,6 +167,39 @@
 
       <div class="modal-btns">
         <button class="btn-primary" onclick="closeOptions()">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export pages as images -->
+  <div id="images-modal" class="modal-overlay">
+    <div class="modal-box options-box">
+      <h3>轉成圖片</h3>
+      <p class="opt-hint">每頁輸出一張圖片；輸出選項中的浮水印、頁碼也會套用</p>
+      <section class="opt-section">
+        <label class="opt-row">範圍
+          <select id="img-scope" class="opt-select">
+            <option value="selected">選取的頁面</option>
+            <option value="all">全部頁面</option>
+          </select>
+        </label>
+        <label class="opt-row">格式
+          <select id="img-format" class="opt-select">
+            <option value="png">PNG</option>
+            <option value="jpg">JPG</option>
+          </select>
+        </label>
+        <label class="opt-row">解析度
+          <select id="img-dpi" class="opt-select">
+            <option value="96">96 DPI（螢幕）</option>
+            <option value="150" selected>150 DPI</option>
+            <option value="300">300 DPI（列印）</option>
+          </select>
+        </label>
+      </section>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="closeImageExport()">取消</button>
+        <button class="btn-primary" onclick="exportImages()">選擇資料夾並匯出</button>
       </div>
     </div>
   </div>
