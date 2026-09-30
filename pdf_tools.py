@@ -114,7 +114,8 @@ class API:
                 for i in range(len(doc)):
                     pix = doc[i].get_pixmap(matrix=mat)
                     b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=70)).decode()
-                    pages.append({"index": i, "b64": f"data:image/jpeg;base64,{b64}"})
+                    pages.append({"index": i, "b64": f"data:image/jpeg;base64,{b64}",
+                                  "w": pix.width, "h": pix.height})
             finally:
                 doc.close()
             return {"ok": True, "pages": pages}

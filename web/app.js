@@ -161,6 +161,7 @@ async function loadPdf(path, append) {
     srcFile:   path,
     origIndex: p.index,
     b64:       p.b64,
+    aspect:    p.w / p.h,
     rotation:  0,
     selected:  false,
     deleted:   false,
@@ -194,6 +195,23 @@ function toggleEncrypt() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
+const THUMB_W = 120;
+
+// Box the thumbnail occupies after rotation (width fixed, height follows aspect)
+function thumbWrapStyle(page) {
+  const a = page.aspect || 0.75;
+  const h = page.rotation % 180 === 0 ? THUMB_W / a : THUMB_W * a;
+  return `width:${THUMB_W}px;height:${h.toFixed(1)}px`;
+}
+
+// Image keeps its unrotated size; rotating it around the centre fills the box
+function thumbImgStyle(page) {
+  const a = page.aspect || 0.75;
+  const [w, h] = page.rotation % 180 === 0 ? [THUMB_W, THUMB_W / a] : [THUMB_W * a, THUMB_W];
+  return `width:${w.toFixed(1)}px;height:${h.toFixed(1)}px;` +
+         `transform:translate(-50%,-50%) rotate(${page.rotation}deg)`;
+}
+
 function renderEditorGrid() {
   const grid = document.getElementById('editor-grid');
   grid.innerHTML = '';
@@ -218,8 +236,8 @@ function renderEditorGrid() {
     div.draggable = true;
 
     div.innerHTML = `
-      <div class="thumb-img-wrap">
-        <img src="${page.b64}" draggable="false">
+      <div class="thumb-img-wrap" style="${thumbWrapStyle(page)}">
+        <img src="${page.b64}" draggable="false" style="${thumbImgStyle(page)}">
         ${page.rotation ? `<div class="rotation-badge">↻ ${page.rotation}°</div>` : ''}
         <div class="thumb-overlay">
           <button class="thumb-btn" title="旋轉 90°" onclick="rotateOnePage(${realIdx},event)">↻</button>
