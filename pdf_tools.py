@@ -5,16 +5,22 @@ import os
 import sys
 import base64
 import json
-import tempfile
+import secrets
 import threading
 import webview
 from webview.dom import DOMEventHandler
 import fitz  # PyMuPDF
-from pikepdf import Pdf, Permissions, Encryption
 
 
 THUMB_PX    = 240   # thumbnail render width (2x the 120px display size)
 PREVIEW_PX  = 1600  # preview render size of the page's longer side
+
+# Encrypted output: anything but copying text out is allowed
+ENCRYPTED_PERMS = int(
+    fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_MODIFY |
+    fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ASSEMBLE |
+    fitz.PDF_PERM_ACCESSIBILITY
+)
 
 _is_dirty   = False
 
@@ -258,41 +264,27 @@ class API:
                 # which also keeps internal links between them
                 for src, start, end in _page_runs(pages):
                     new_doc.insert_pdf(open_docs[src], from_page=start, to_page=end)
-                for pg, p in zip(new_doc, pages):
-                    if p["rotation"]:
-                        pg.set_rotation((pg.rotation + p["rotation"]) % 360)
-                toc = _remap_toc(pages, open_docs)
-                if toc:
-                    new_doc.set_toc(toc)
+                toc = _remap_toc(pages, open_docs)   # needs the sources still open
             finally:
                 for doc in open_docs.values():
                     doc.close()
+            for pg, p in zip(new_doc, pages):
+                if p["rotation"]:
+                    pg.set_rotation((pg.rotation + p["rotation"]) % 360)
+            if toc:
+                new_doc.set_toc(toc)
 
+            options = dict(garbage=4, deflate=True)
             if password:
-                # fitz doesn't encrypt; save temp then encrypt with pikepdf
-                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                    tmp_path = tmp.name
-                try:
-                    new_doc.save(tmp_path, garbage=4, deflate=True)
-                    new_doc.close()
-                    new_doc = None        # mark closed so outer finally skips it
-                    pdf = Pdf.open(tmp_path)
-                    try:
-                        no_extract = Permissions(extract=False)
-                        pdf.save(out_path, encryption=Encryption(
-                            user=password, owner=password, allow=no_extract))
-                    finally:
-                        pdf.close()
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-            else:
-                new_doc.save(out_path, garbage=4, deflate=True)
-                new_doc.close()
-                new_doc = None            # mark closed
+                # A separate random owner password keeps the permission
+                # restrictions enforceable (with owner == user they'd be moot)
+                options.update(encryption=fitz.PDF_ENCRYPT_AES_256,
+                               user_pw=password,
+                               owner_pw=secrets.token_urlsafe(24),
+                               permissions=ENCRYPTED_PERMS)
+            new_doc.save(out_path, **options)
         finally:
-            if new_doc is not None:
-                new_doc.close()
+            new_doc.close()
 
     def get_preview(self, path, index):
         try:
