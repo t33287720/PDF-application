@@ -4,13 +4,27 @@
 
 ## 功能
 
-- 開啟 PDF，以縮圖預覽所有頁面
-- 拖拉頁面自由排序
+- 開啟 PDF，以縮圖預覽所有頁面（大檔案先顯示版面、縮圖在背景載入）
+- 支援開啟有密碼的 PDF
+- 直接從檔案總管把 PDF 拖進視窗開啟 / 附加
+- 拖拉頁面自由排序，雙擊縮圖放大預覽
 - 附加更多 PDF（合併入當前頁面）
-- 單頁或批次旋轉 / 刪除
+- 單頁或批次旋轉 / 刪除，可復原 / 重做
 - 擷取選取頁面另存新檔
-- 輸出時可選擇加密（設定開啟密碼）
-- 介面縮放（70% – 400%）
+- 輸出保留書籤，並自動去除重複資源、壓縮檔案
+- 輸出時可選擇加密（AES-256，設定開啟密碼、禁止複製文字）
+- 介面縮放（70% – 400%），縮放比例與上次使用的資料夾會自動記住
+
+### 快捷鍵
+
+| 按鍵 | 功能 |
+|------|------|
+| Ctrl+O / Ctrl+S | 開啟 / 儲存 |
+| Ctrl+Z / Ctrl+Y | 復原 / 重做 |
+| Ctrl+A / Esc | 全選 / 取消選取 |
+| Shift+點擊 | 選取範圍 |
+| R / Delete | 旋轉 / 刪除選取頁 |
+| 雙擊縮圖 | 預覽；← → 換頁，Esc 關閉 |
 
 ## 使用方式
 
@@ -32,8 +46,7 @@ sudo apt-get install -y python3-gi python3-gi-cairo \
     fonts-wqy-zenhei xfonts-wqy
 
 # Python 套件（使用系統 Python 3.12）
-/usr/bin/python3.12 -m pip install --user --break-system-packages \
-    pikepdf pymupdf pywebview
+/usr/bin/python3.12 -m pip install --user --break-system-packages -r requirements.txt
 ```
 
 ### 執行（開發測試）
@@ -48,18 +61,28 @@ sudo apt-get install -y python3-gi python3-gi-cairo \
 
 ```bash
 # 安裝 Windows 端套件（只需執行一次）
-python.exe -m pip install pikepdf pymupdf pywebview pyinstaller
+python.exe -m pip install -r requirements-dev.txt
 
 # 打包
-python.exe -m PyInstaller --onefile --windowed --add-data "web;web" --name "PDF_Tools" pdf_tools.py
+python.exe -m PyInstaller PDF_Tools.spec
 ```
 
+Linux 版本則使用 `PDF_Tools_Linux.spec`。
+
 產出位於 `dist/PDF_Tools.exe`。
+
+### 測試
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest tests
+```
 
 ### 專案結構
 
 ```
 pdf_tools.py   # 主程式（Python 後端 + PyWebView 視窗）
+tests/         # 後端測試（pytest）
 web/
   index.html   # 介面結構
   style.css    # 樣式
@@ -70,7 +93,6 @@ web/
 
 | 套件 | 用途 |
 |------|------|
-| [pikepdf](https://github.com/pikepdf/pikepdf) | PDF 讀寫、加密 |
-| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | 頁面渲染成縮圖 |
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | PDF 讀寫、頁面渲染、加密 |
 | [pywebview](https://pywebview.flowrl.com/) | 以 HTML/CSS/JS 建立原生視窗 |
 | [PyInstaller](https://pyinstaller.org/) | 打包成單一執行檔 |

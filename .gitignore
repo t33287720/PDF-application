@@ -3,17 +3,14 @@
 
 # PyInstaller build output (暫存，非產出物)
 build/
-*.spec
 
 # Python cache
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # PDF files (personal / test data)
 *.pdf
-
-# App runtime log
-/tmp/pdf_tools.log
 
 # OS
 .DS_Store
