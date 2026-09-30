@@ -108,7 +108,7 @@ function askPassword(msg) {
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 
-// [{srcFile, origIndex, size, aspect, b64, rotation, selected, deleted, blank?}]
+// [{srcFile, srcName, srcOrig, origIndex, size, aspect, b64, rotation, selected, deleted, blank?}]
 let editorPages = [];
 let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
@@ -167,24 +167,22 @@ function updateUndoButtons() {
 
 // ── File operations ───────────────────────────────────────────────────────────
 
+// The first file replaces the current pages (unless appending); the rest are appended
+async function loadFiles(paths, append) {
+  for (const [i, path] of paths.entries()) await loadPdf(path, append || i > 0);
+}
+
 async function openNewPdf() {
+  const pick = async () => loadFiles(await pywebview.api.browse_open(), false);
   if (isDirty && editorPages.filter(p => !p.deleted).length > 0) {
-    showConfirm('有未儲存的變更，開啟新 PDF 將會遺失目前的修改，確定繼續嗎？', async () => {
-      const path = await pywebview.api.browse_open();
-      if (!path) return;
-      await loadPdf(path, false);
-    });
+    showConfirm('有未儲存的變更，開啟新檔案將會遺失目前的修改，確定繼續嗎？', pick);
     return;
   }
-  const path = await pywebview.api.browse_open();
-  if (!path) return;
-  await loadPdf(path, false);
+  await pick();
 }
 
 async function appendPdf() {
-  const path = await pywebview.api.browse_open();
-  if (!path) return;
-  await loadPdf(path, true);
+  await loadFiles(await pywebview.api.browse_open(), true);
 }
 
 async function loadPdf(path, append) {
@@ -216,7 +214,9 @@ async function loadPdf(path, append) {
   }
 
   const newPages = res.sizes.map(([w, h], i) => ({
-    srcFile:   path,
+    srcFile:   res.path,  // for images: the PDF they were converted to
+    srcName:   res.name,
+    srcOrig:   path,
     origIndex: i,
     b64:       null,      // filled in by loadThumbnails()
     size:      [w, h],    // points, as displayed before any rotation here
@@ -247,7 +247,7 @@ async function loadPdf(path, append) {
   renderEditorGrid();
   const action = append ? `已附加 ${newPages.length} 頁` : `已載入 ${newPages.length} 頁`;
   setStatus(`${action}，共 ${editorPages.filter(p=>!p.deleted).length} 頁`, true);
-  loadThumbnails(path, newPages);
+  loadThumbnails(res.path, newPages);
 }
 
 // ── Thumbnails (fetched in batches after the page grid is shown) ─────────────
@@ -278,7 +278,7 @@ async function handleDroppedFiles(paths) {
   document.body.classList.remove('file-drag');
   // With nothing open the first file opens and the rest are appended;
   // otherwise every dropped file is appended to the current pages
-  for (const path of paths) await loadPdf(path, editorPages.length > 0);
+  await loadFiles(paths, editorPages.length > 0);
 }
 
 // Highlight the window while files (not pages) are dragged over it
@@ -520,7 +520,7 @@ function updateThumb(page, displayIdx, srcName) {
   div.querySelector('.thumb-num').textContent = displayIdx + 1;
   const src = div.querySelector('.thumb-src');
   src.textContent = srcName;
-  src.title = srcName && !page.blank ? page.srcFile : '';
+  src.title = srcName && !page.blank ? page.srcOrig : '';
   src.style.display = srcName ? '' : 'none';
   return div;
 }
@@ -555,7 +555,7 @@ function renderEditorGrid() {
 
   // Show the source file name only when pages come from more than one PDF
   const multiSrc = new Set(visible.filter(p => !p.blank).map(p => p.srcFile)).size > 1;
-  const label = page => page.blank ? '空白頁' : multiSrc ? fileNameOf(page.srcFile) : '';
+  const label = page => page.blank ? '空白頁' : multiSrc ? page.srcName : '';
   grid.replaceChildren(
     ...visible.map((page, i) => updateThumb(page, i, label(page))),
     endZone,
@@ -642,7 +642,7 @@ async function openPreview(page) {
   document.querySelector('.preview-nav.next').disabled = pos >= visible.length - 1;
   document.getElementById('preview-caption').textContent = page.blank
     ? `第 ${pos + 1} / ${visible.length} 頁　空白頁`
-    : `第 ${pos + 1} / ${visible.length} 頁　${fileNameOf(page.srcFile)} 原第 ${page.origIndex + 1} 頁`;
+    : `第 ${pos + 1} / ${visible.length} 頁　${page.srcName} 原第 ${page.origIndex + 1} 頁`;
   fig.classList.remove('ready');
 
   const res = page.blank

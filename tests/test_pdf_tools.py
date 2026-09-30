@@ -280,3 +280,28 @@ def test_page_numbers(api, tmp_path):
 @pytest.mark.parametrize("rotation", [90, 270])
 def test_page_number_follows_rotation(rotation):
     assert _same_as_upright(lambda pg: pdf_tools._add_page_number(pg, "12 / 30", "bottom-right"), rotation)
+
+
+# ── images ───────────────────────────────────────────────────────────────────
+
+def test_open_image_converts_to_pdf(api, tmp_path):
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 400, 300), False)
+    pix.set_rect(pix.irect, (30, 120, 200))
+    img = str(tmp_path / "photo.png")
+    pix.save(img)
+    res = api.open_pdf_for_editor(img)
+    assert res["ok"] and res["name"] == "photo.png"
+    assert res["path"].endswith(".pdf") and res["path"] != img
+    assert res["sizes"] == [[300, 225]]          # 400x300 px at 96 DPI
+    assert api.get_thumbnails(res["path"], 0, 1)["ok"]
+    out = str(tmp_path / "out.pdf")
+    assert api.save_edited_pdf(pages_of(res["path"], 0, rotation=90), out)["ok"]
+    doc = fitz.open(out)
+    assert len(doc) == 1 and doc[0].get_images()
+    doc.close()
+
+
+def test_open_broken_image(api, tmp_path):
+    bad = tmp_path / "broken.jpg"
+    bad.write_bytes(b"not an image")
+    assert not api.open_pdf_for_editor(str(bad))["ok"]

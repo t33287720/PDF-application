@@ -3,10 +3,13 @@
 
 import os
 import sys
+import atexit
 import base64
 import json
 import math
 import secrets
+import shutil
+import tempfile
 import threading
 import webview
 from webview.dom import DOMEventHandler
@@ -30,6 +33,18 @@ ENCRYPTED_PERMS = int(
 )
 
 _is_dirty   = False
+
+# Images are converted to a temporary PDF (one page per image / TIFF frame)
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff")
+OPEN_FILE_TYPES = (
+    "PDF 與圖片 (*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff)",
+    "PDF (*.pdf)",
+    "圖片 (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff)",
+)
+
+
+def _is_image(path):
+    return path.lower().endswith(IMAGE_EXTS)
 
 
 def _settings_path():
@@ -183,6 +198,25 @@ class API:
         self._lock = threading.RLock()
         self._thumb_doc = None  # (path, doc) kept open between thumbnail batches
         self._settings = _load_settings()
+        self._tmp_dir = None    # holds PDFs converted from images
+
+    def _image_to_pdf(self, path):
+        if not self._tmp_dir:
+            self._tmp_dir = tempfile.mkdtemp(prefix="pdf_tools_")
+            atexit.register(shutil.rmtree, self._tmp_dir, ignore_errors=True)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        fd, pdf_path = tempfile.mkstemp(prefix=f"{stem}_", suffix=".pdf", dir=self._tmp_dir)
+        os.close(fd)
+        img = fitz.open(path)
+        try:
+            pdf = fitz.open("pdf", img.convert_to_pdf())   # honours EXIF orientation
+        finally:
+            img.close()
+        try:
+            pdf.save(pdf_path, garbage=4, deflate=True)
+        finally:
+            pdf.close()
+        return pdf_path
 
     def _remember_dir(self, path):
         folder = os.path.dirname(path)
@@ -253,12 +287,13 @@ class API:
         result = webview.windows[0].create_file_dialog(
             webview.FileDialog.OPEN,
             directory=self._last_dir(),
-            file_types=("PDF Files (*.pdf)",)
+            allow_multiple=True,
+            file_types=OPEN_FILE_TYPES,
         )
         if not result:
-            return ""
+            return []
         self._remember_dir(result[0])
-        return result[0]
+        return list(result)
 
     def browse_save(self, default_name="output"):
         result = webview.windows[0].create_file_dialog(
@@ -292,11 +327,15 @@ class API:
 
     def open_pdf_for_editor(self, path, password=""):
         """Check the file (and password) and return page sizes; thumbnails
-        are fetched afterwards in batches through get_thumbnails()."""
+        are fetched afterwards in batches through get_thumbnails().
+        Images are converted first; `path` in the result is the PDF to use."""
         try:
             if not os.path.isfile(path):
-                return {"ok": False, "msg": "PDF 不存在！"}
+                return {"ok": False, "msg": "檔案不存在！"}
+            name = os.path.basename(path)
             with self._lock:
+                if _is_image(path):
+                    path = self._image_to_pdf(path)
                 doc = fitz.open(path)
                 try:
                     if doc.needs_pass:
@@ -311,7 +350,7 @@ class API:
                     sizes = [[pg.rect.width, pg.rect.height] for pg in doc]
                 finally:
                     doc.close()
-            return {"ok": True, "sizes": sizes}
+            return {"ok": True, "sizes": sizes, "path": path, "name": name}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
@@ -438,11 +477,11 @@ def _bind_file_drop(window):
     def on_drop(e):
         files = e.get("dataTransfer", {}).get("files", [])
         paths = [f["pywebviewFullPath"] for f in files
-                 if f.get("pywebviewFullPath", "").lower().endswith(".pdf")]
+                 if f.get("pywebviewFullPath", "").lower().endswith((".pdf",) + IMAGE_EXTS)]
         if paths:
             window.evaluate_js(f"handleDroppedFiles({json.dumps(paths)})")
         elif files:
-            window.evaluate_js("showToast('只能拖入 PDF 檔案！', false)")
+            window.evaluate_js("showToast('只能拖入 PDF 或圖片檔案！', false)")
 
     doc_events = window.dom.document.events
     doc_events.dragenter += DOMEventHandler(lambda e: None, True, False)

@@ -23,8 +23,8 @@
 
     <!-- 左：檔案操作 -->
     <div class="toolbar-group">
-      <button class="btn-primary" onclick="openNewPdf()" title="Ctrl+O">開啟 PDF</button>
-      <button class="btn-tool" id="btn-append" onclick="appendPdf()" disabled>附加 PDF</button>
+      <button class="btn-primary" onclick="openNewPdf()" title="開啟 PDF 或圖片 (Ctrl+O)">開啟</button>
+      <button class="btn-tool" id="btn-append" onclick="appendPdf()" title="在最後加入 PDF 或圖片" disabled>附加</button>
     </div>
 
     <div class="toolbar-sep" id="page-tools-sep" style="display:none"></div>
@@ -54,8 +54,8 @@
   <!-- Editor grid -->
   <div id="editor-grid" class="editor-grid">
     <div class="editor-placeholder">
-      <p>點擊「開啟 PDF」載入檔案</p>
-      <p class="hint">也可以直接把 PDF 檔拖進視窗；支援拖拉重新排序、雙擊預覽、單頁旋轉或刪除</p>
+      <p>點擊「開啟」載入 PDF 或圖片</p>
+      <p class="hint">也可以直接把檔案拖進視窗（可多選）；圖片會轉成 PDF 頁面</p>
     </div>
   </div>
 
