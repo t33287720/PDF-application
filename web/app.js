@@ -462,8 +462,8 @@ function createThumb(page) {
       <img draggable="false" alt="">
       <div class="rotation-badge"></div>
       <div class="thumb-overlay">
-        <button class="thumb-btn" title="旋轉 90°">↻</button>
-        <button class="thumb-btn delete" title="刪除">✕</button>
+        <button class="thumb-btn" title="旋轉 90°" aria-label="旋轉 90°">↻</button>
+        <button class="thumb-btn delete" title="刪除" aria-label="刪除此頁">✕</button>
       </div>
     </div>
     <div class="thumb-footer">

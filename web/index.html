@@ -31,8 +31,8 @@
 
     <!-- 中：頁面操作（有檔案後才顯示） -->
     <div class="toolbar-group" id="page-tools" style="display:none">
-      <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" disabled>↶</button>
-      <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" disabled>↷</button>
+      <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" aria-label="復原" disabled>↶</button>
+      <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" aria-label="重做" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
@@ -70,7 +70,7 @@
   <div class="statusbar" id="statusbar"></div>
 
   <!-- Toast notification -->
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Unsaved changes confirm modal -->
   <div id="confirm-modal" class="modal-overlay">
@@ -85,14 +85,14 @@
 
   <!-- Page preview (double-click a thumbnail) -->
   <div id="preview-modal" class="preview-overlay">
-    <button class="preview-nav prev" onclick="stepPreview(-1)" title="上一頁 (←)">‹</button>
+    <button class="preview-nav prev" onclick="stepPreview(-1)" title="上一頁 (←)" aria-label="上一頁">‹</button>
     <figure class="preview-figure">
       <div class="spinner"></div>
       <img id="preview-img" alt="">
       <figcaption id="preview-caption"></figcaption>
     </figure>
-    <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)">›</button>
-    <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)">✕</button>
+    <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)" aria-label="下一頁">›</button>
+    <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)" aria-label="關閉預覽">✕</button>
   </div>
 
   <!-- Output options (applied to every file written: save / extract / split) -->
