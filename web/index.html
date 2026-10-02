@@ -31,8 +31,8 @@
 
     <!-- 中：頁面操作（有檔案後才顯示） -->
     <div class="toolbar-group" id="page-tools" style="display:none">
-      <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" disabled>↶</button>
-      <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" disabled>↷</button>
+      <button class="btn-tool" id="btn-undo" onclick="undo()" title="復原 (Ctrl+Z)" aria-label="復原" disabled>↶</button>
+      <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" aria-label="重做" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
@@ -67,14 +67,14 @@
   </div>
 
   <!-- Status bar -->
-  <div class="statusbar" id="statusbar"></div>
+  <div class="statusbar" id="statusbar" role="status" aria-live="polite"></div>
 
   <!-- Toast notification -->
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Unsaved changes confirm modal -->
   <div id="confirm-modal" class="modal-overlay">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="confirm-msg">
       <p id="confirm-msg"></p>
       <div class="modal-btns">
         <button class="btn-tool" onclick="hideConfirm()">取消</button>
@@ -85,20 +85,20 @@
 
   <!-- Page preview (double-click a thumbnail) -->
   <div id="preview-modal" class="preview-overlay">
-    <button class="preview-nav prev" onclick="stepPreview(-1)" title="上一頁 (←)">‹</button>
+    <button class="preview-nav prev" onclick="stepPreview(-1)" title="上一頁 (←)" aria-label="上一頁">‹</button>
     <figure class="preview-figure">
       <div class="spinner"></div>
       <img id="preview-img" alt="">
       <figcaption id="preview-caption"></figcaption>
     </figure>
-    <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)">›</button>
-    <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)">✕</button>
+    <button class="preview-nav next" onclick="stepPreview(1)" title="下一頁 (→)" aria-label="下一頁">›</button>
+    <button class="preview-close" onclick="closePreview()" title="關閉 (Esc)" aria-label="關閉預覽">✕</button>
   </div>
 
   <!-- Output options (applied to every file written: save / extract / split) -->
   <div id="options-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>輸出選項</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="options-modal-title">
+      <h3 id="options-modal-title">輸出選項</h3>
       <p class="opt-hint">套用於儲存、擷取等所有輸出的檔案</p>
 
       <section class="opt-section">
@@ -174,8 +174,8 @@
 
   <!-- Split into several PDFs -->
   <div id="split-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>分割 PDF</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="split-modal-title">
+      <h3 id="split-modal-title">分割 PDF</h3>
       <p class="opt-hint">頁碼依目前的頁面順序；輸出選項也會套用到每個檔案</p>
       <section class="opt-section" id="split-modes">
         <label class="opt-toggle"><input type="radio" name="split-mode" value="ranges" checked> 依頁碼範圍，每段一個檔案</label>
@@ -194,8 +194,8 @@
 
   <!-- Export pages as images -->
   <div id="images-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>轉成圖片</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="images-modal-title">
+      <h3 id="images-modal-title">轉成圖片</h3>
       <p class="opt-hint">每頁輸出一張圖片；輸出選項中的浮水印、頁碼也會套用</p>
       <section class="opt-section">
         <label class="opt-row">範圍
@@ -233,7 +233,7 @@
 
   <!-- Password prompt modal (for encrypted source PDFs) -->
   <div id="pw-modal" class="modal-overlay">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="pw-modal-msg">
       <p id="pw-modal-msg"></p>
       <input type="password" id="pw-modal-input" class="pw-input modal-input" placeholder="密碼…">
       <div class="modal-btns">
