@@ -550,6 +550,7 @@ function updateThumb(page, displayIdx, srcName) {
   const badge = div.querySelector('.rotation-badge');
   badge.textContent = page.rotation ? `↻ ${page.rotation}°` : '';
   badge.style.display = page.rotation ? '' : 'none';
+  img.alt = `第 ${displayIdx + 1} 頁`;
   div.querySelector('.thumb-num').textContent = displayIdx + 1;
   const src = div.querySelector('.thumb-src');
   src.textContent = srcName;
@@ -676,6 +677,7 @@ async function openPreview(page) {
   document.getElementById('preview-caption').textContent = page.blank
     ? `第 ${pos + 1} / ${visible.length} 頁　空白頁`
     : `第 ${pos + 1} / ${visible.length} 頁　${page.srcName} 原第 ${page.origIndex + 1} 頁`;
+  img.alt = `第 ${pos + 1} 頁預覽`;
   fig.classList.remove('ready');
 
   const res = page.blank
