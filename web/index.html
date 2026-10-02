@@ -74,7 +74,7 @@
 
   <!-- Unsaved changes confirm modal -->
   <div id="confirm-modal" class="modal-overlay">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="confirm-msg">
       <p id="confirm-msg"></p>
       <div class="modal-btns">
         <button class="btn-tool" onclick="hideConfirm()">取消</button>
@@ -97,8 +97,8 @@
 
   <!-- Output options (applied to every file written: save / extract / split) -->
   <div id="options-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>輸出選項</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="options-modal-title">
+      <h3 id="options-modal-title">輸出選項</h3>
       <p class="opt-hint">套用於儲存、擷取等所有輸出的檔案</p>
 
       <section class="opt-section">
@@ -174,8 +174,8 @@
 
   <!-- Split into several PDFs -->
   <div id="split-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>分割 PDF</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="split-modal-title">
+      <h3 id="split-modal-title">分割 PDF</h3>
       <p class="opt-hint">頁碼依目前的頁面順序；輸出選項也會套用到每個檔案</p>
       <section class="opt-section" id="split-modes">
         <label class="opt-toggle"><input type="radio" name="split-mode" value="ranges" checked> 依頁碼範圍，每段一個檔案</label>
@@ -194,8 +194,8 @@
 
   <!-- Export pages as images -->
   <div id="images-modal" class="modal-overlay">
-    <div class="modal-box options-box">
-      <h3>轉成圖片</h3>
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="images-modal-title">
+      <h3 id="images-modal-title">轉成圖片</h3>
       <p class="opt-hint">每頁輸出一張圖片；輸出選項中的浮水印、頁碼也會套用</p>
       <section class="opt-section">
         <label class="opt-row">範圍
@@ -233,7 +233,7 @@
 
   <!-- Password prompt modal (for encrypted source PDFs) -->
   <div id="pw-modal" class="modal-overlay">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="pw-modal-msg">
       <p id="pw-modal-msg"></p>
       <input type="password" id="pw-modal-input" class="pw-input modal-input" placeholder="密碼…">
       <div class="modal-btns">
