@@ -582,3 +582,12 @@ button:focus-visible,
   outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
+
+/* 系統設定為「減少動態效果」時，停用動畫與過場 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
