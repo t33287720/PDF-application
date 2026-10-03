@@ -578,7 +578,10 @@ body.file-drag .editor-grid {
 /* 鍵盤操作時顯示焦點框（滑鼠點擊不會觸發） */
 button:focus-visible,
 .btn-primary:focus-visible,
-.btn-tool:focus-visible {
+.btn-tool:focus-visible,
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
