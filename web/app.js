@@ -379,6 +379,10 @@ optionsModal.addEventListener('change', e => {
   const body = optionsModal.querySelector(`.opt-body[data-for="${e.target.id}"]`);
   if (body) body.classList.toggle('show', e.target.checked);
 });
+optionsModal.addEventListener('change', e => {
+  if (e.target.id !== 'opt-meta') return;
+  document.getElementById('opt-meta-body').classList.toggle('show', e.target.value === 'custom');
+});
 setupModal('options-modal', () => closeOptions());
 optionsModal.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') closeOptions();
@@ -421,12 +425,20 @@ function getOutputOptions() {
       skip_first: document.getElementById('opt-pn-skip').checked,
     };
   }
+  const metaMode = document.getElementById('opt-meta').value;
+  if (metaMode !== 'keep') {
+    opts.meta_mode = metaMode;
+    if (metaMode === 'custom') {
+      opts.title  = document.getElementById('opt-meta-title').value.trim();
+      opts.author = document.getElementById('opt-meta-author').value.trim();
+    }
+  }
   return opts;
 }
 
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.meta_mode].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);
@@ -462,8 +474,8 @@ function createThumb(page) {
       <img draggable="false" alt="">
       <div class="rotation-badge"></div>
       <div class="thumb-overlay">
-        <button class="thumb-btn" title="旋轉 90°">↻</button>
-        <button class="thumb-btn delete" title="刪除">✕</button>
+        <button class="thumb-btn" title="旋轉 90°" aria-label="旋轉 90°">↻</button>
+        <button class="thumb-btn delete" title="刪除" aria-label="刪除此頁">✕</button>
       </div>
     </div>
     <div class="thumb-footer">
@@ -550,6 +562,7 @@ function updateThumb(page, displayIdx, srcName) {
   const badge = div.querySelector('.rotation-badge');
   badge.textContent = page.rotation ? `↻ ${page.rotation}°` : '';
   badge.style.display = page.rotation ? '' : 'none';
+  img.alt = `第 ${displayIdx + 1} 頁`;
   div.querySelector('.thumb-num').textContent = displayIdx + 1;
   const src = div.querySelector('.thumb-src');
   src.textContent = srcName;
@@ -676,6 +689,7 @@ async function openPreview(page) {
   document.getElementById('preview-caption').textContent = page.blank
     ? `第 ${pos + 1} / ${visible.length} 頁　空白頁`
     : `第 ${pos + 1} / ${visible.length} 頁　${page.srcName} 原第 ${page.origIndex + 1} 頁`;
+  img.alt = `第 ${pos + 1} 頁預覽`;
   fig.classList.remove('ready');
 
   const res = page.blank
