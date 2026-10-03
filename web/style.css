@@ -574,3 +574,11 @@ body.file-drag .editor-grid {
 .preview-nav.prev { left: 18px; }
 .preview-nav.next { right: 18px; }
 .preview-close { top: 16px; right: 18px; width: 36px; height: 36px; font-size: 16px; }
+
+/* 鍵盤操作時顯示焦點框（滑鼠點擊不會觸發） */
+button:focus-visible,
+.btn-primary:focus-visible,
+.btn-tool:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
