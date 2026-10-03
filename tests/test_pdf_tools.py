@@ -343,3 +343,29 @@ def test_split_pdf(api, tmp_path):
     assert texts(str(out_dir / "a_5-4.pdf"), "pw") == [("Page 5", 0), ("Page 4", 0)]
     assert texts(str(out_dir / "a_3.pdf"), "pw") == [("Page 3", 0), ("", 0)]
     assert not api.split_pdf(groups, str(tmp_path / "missing"))["ok"]
+
+
+def test_metadata_clear_removes_document_info(api, tmp_path):
+    src = str(tmp_path / "meta.pdf")
+    doc = fitz.open()
+    doc.new_page()
+    doc.set_metadata({"title": "T", "author": "Someone", "creator": "App"})
+    doc.save(src)
+    doc.close()
+    out = str(tmp_path / "clean.pdf")
+    assert api.save_edited_pdf(pages_of(src, 0), out, {"meta_mode": "clear"})["ok"]
+    doc = fitz.open(out)
+    assert not any(doc.metadata.get(k) for k in ("title", "author", "creator", "creationDate", "modDate"))
+    doc.close()
+
+
+def test_metadata_custom_and_with_encryption(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    out = str(tmp_path / "custom.pdf")
+    opts = {"meta_mode": "custom", "title": "合約", "author": "我", "password": "pw"}
+    assert api.save_edited_pdf(pages_of(src, 0), out, opts)["ok"]
+    doc = fitz.open(out)
+    assert doc.authenticate("pw")
+    assert doc.metadata["title"] == "合約" and doc.metadata["author"] == "我"
+    assert not doc.metadata["creator"]
+    doc.close()
