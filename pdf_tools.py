@@ -191,6 +191,22 @@ def _add_page_number(page, text, position="bottom-center", fontsize=11):
     _stamp_text(page, text, fontsize, (x, y), align=horizontal)
 
 
+def _apply_metadata(doc, options):
+    """meta_mode "clear" wipes all document info (and XMP); "custom" keeps only
+    the given title / author; anything else leaves the document untouched.
+    Runs before saving, so encryption covers it too."""
+    mode = options.get("meta_mode")
+    if mode not in ("clear", "custom"):
+        return
+    meta = {key: "" for key in ("title", "author", "subject", "keywords", "creator",
+                                "producer", "creationDate", "modDate", "trapped")}
+    if mode == "custom":
+        meta["title"] = str(options.get("title") or "")
+        meta["author"] = str(options.get("author") or "")
+    doc.set_metadata(meta)
+    doc.del_xml_metadata()
+
+
 def _add_page_numbers(doc, spec):
     """spec: {format ('{n}', '{total}' placeholders), position, start, skip_first, size}"""
     fmt = spec.get("format") or "{n}"
@@ -436,6 +452,7 @@ class API:
                 _add_page_numbers(new_doc, page_numbers)
             if watermark or page_numbers:
                 new_doc.subset_fonts()   # embed only the glyphs actually used
+            _apply_metadata(new_doc, options)
             return new_doc
         except Exception:
             new_doc.close()
@@ -533,7 +550,8 @@ class API:
         out     : output path (empty = auto)
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
-                   page_numbers: {format, position, start, skip_first, size}}
+                   page_numbers: {format, position, start, skip_first, size},
+                   meta_mode: "keep" | "clear" | "custom", title, author}
         """
         options = options or {}
         password = options.get("password", "")

@@ -379,6 +379,10 @@ optionsModal.addEventListener('change', e => {
   const body = optionsModal.querySelector(`.opt-body[data-for="${e.target.id}"]`);
   if (body) body.classList.toggle('show', e.target.checked);
 });
+optionsModal.addEventListener('change', e => {
+  if (e.target.id !== 'opt-meta') return;
+  document.getElementById('opt-meta-body').classList.toggle('show', e.target.value === 'custom');
+});
 setupModal('options-modal', () => closeOptions());
 optionsModal.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') closeOptions();
@@ -421,12 +425,20 @@ function getOutputOptions() {
       skip_first: document.getElementById('opt-pn-skip').checked,
     };
   }
+  const metaMode = document.getElementById('opt-meta').value;
+  if (metaMode !== 'keep') {
+    opts.meta_mode = metaMode;
+    if (metaMode === 'custom') {
+      opts.title  = document.getElementById('opt-meta-title').value.trim();
+      opts.author = document.getElementById('opt-meta-author').value.trim();
+    }
+  }
   return opts;
 }
 
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.meta_mode].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);

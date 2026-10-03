@@ -166,6 +166,21 @@
         </label>
       </section>
 
+      <section class="opt-section">
+        <label class="opt-row">文件資訊
+          <select id="opt-meta" class="opt-select">
+            <option value="keep">保留</option>
+            <option value="clear">清除作者、軟體、時間等資訊</option>
+            <option value="custom">自訂標題／作者</option>
+          </select>
+        </label>
+        <div class="opt-body" id="opt-meta-body">
+          <input type="text" id="opt-meta-title" class="opt-input opt-wide" placeholder="標題（可留空）" maxlength="120">
+          <input type="text" id="opt-meta-author" class="opt-input opt-wide" placeholder="作者（可留空）" maxlength="120">
+          <span class="opt-note">其他中繼資料（建立軟體、時間等）都會清除</span>
+        </div>
+      </section>
+
       <div class="modal-btns">
         <button class="btn-primary" onclick="closeOptions()">完成</button>
       </div>
