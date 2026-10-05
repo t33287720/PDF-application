@@ -35,6 +35,7 @@
       <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" aria-label="重做" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
+      <button class="btn-tool" onclick="openCrop()" title="裁掉選取頁（或全部頁）的邊緣">✂ 裁切</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
       <button class="btn-tool" onclick="insertBlankPage()" title="插入到選取頁之後（未選取則加在最後）">＋ 空白頁</button>
       <div class="dropdown" id="export-menu">
@@ -203,6 +204,29 @@
       <div class="modal-btns">
         <button class="btn-tool" onclick="closeSplit()">取消</button>
         <button class="btn-primary" id="split-go" onclick="runSplit()">選擇資料夾並分割</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Crop margins -->
+  <div id="crop-modal" class="modal-overlay">
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="crop-modal-title">
+      <h3 id="crop-modal-title">裁切頁面</h3>
+      <p class="opt-hint">自四邊裁掉指定寬度（以目前旋轉後所見的方向為準）。裁切只會縮小可視範圍，原內容仍留在檔案內，不能用來移除機密資訊。</p>
+      <section class="opt-section">
+        <label class="opt-toggle">上 <input type="number" id="crop-top" class="opt-input opt-num" value="0" min="0" step="0.5"> mm</label>
+        <label class="opt-toggle">下 <input type="number" id="crop-bottom" class="opt-input opt-num" value="0" min="0" step="0.5"> mm</label>
+        <label class="opt-toggle">左 <input type="number" id="crop-left" class="opt-input opt-num" value="0" min="0" step="0.5"> mm</label>
+        <label class="opt-toggle">右 <input type="number" id="crop-right" class="opt-input opt-num" value="0" min="0" step="0.5"> mm</label>
+      </section>
+      <section class="opt-section">
+        <label class="opt-toggle"><input type="radio" name="crop-target" value="selected" checked> 選取的頁面</label>
+        <label class="opt-toggle"><input type="radio" name="crop-target" value="all"> 全部頁面</label>
+      </section>
+      <p class="split-summary" id="crop-summary"></p>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="closeCrop()">取消</button>
+        <button class="btn-primary" onclick="applyCrop()">套用</button>
       </div>
     </div>
   </div>
