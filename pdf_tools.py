@@ -135,6 +135,24 @@ def _remap_toc(pages, open_docs):
     return toc
 
 
+def _edited_toc(pages, bookmarks):
+    """Build the TOC from the user's bookmark list: [{level, title, bid}], where
+    bid matches a page's "bid". Bookmarks whose page is not in `pages` are
+    dropped; the rest are put in page order with contiguous levels."""
+    pos = {p["bid"]: n for n, p in enumerate(pages, start=1) if p.get("bid") is not None}
+    entries = [(pos[b["bid"]], b) for b in bookmarks if b.get("bid") in pos]
+    entries.sort(key=lambda e: e[0])   # stable: keeps the user's order within a page
+    toc = []
+    for n, b in entries:
+        title = str(b.get("title", "")).strip()
+        if not title:
+            continue
+        level = max(1, int(b.get("level", 1)))
+        level = min(level, toc[-1][0] + 1 if toc else 1)
+        toc.append([level, title, n])
+    return toc
+
+
 _fonts = {}
 
 
@@ -391,9 +409,12 @@ class API:
                     if len(doc) == 0:
                         return {"ok": False, "msg": "此 PDF 沒有任何頁面"}
                     sizes = [[pg.rect.width, pg.rect.height] for pg in doc]
+                    toc = [[lvl, title, pno - 1]
+                           for lvl, title, pno, *_ in doc.get_toc(simple=False)
+                           if 1 <= pno <= len(doc)]
                 finally:
                     doc.close()
-            return {"ok": True, "sizes": sizes, "path": path, "name": name}
+            return {"ok": True, "sizes": sizes, "path": path, "name": name, "toc": toc}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
@@ -433,7 +454,10 @@ class API:
                         new_doc.new_page(width=a, height=b)
                     else:
                         new_doc.insert_pdf(open_docs[src], from_page=a, to_page=b)
-                toc = _remap_toc(pages, open_docs)   # needs the sources still open
+                if options.get("bookmarks") is not None:
+                    toc = _edited_toc(pages, options["bookmarks"])
+                else:
+                    toc = _remap_toc(pages, open_docs)   # needs the sources still open
             finally:
                 for doc in open_docs.values():
                     doc.close()
@@ -442,6 +466,8 @@ class API:
                     pg.set_rotation((pg.rotation + p["rotation"]) % 360)
             if toc:
                 new_doc.set_toc(toc)
+            elif options.get("bookmarks") is not None:
+                new_doc.set_toc([])   # all bookmarks removed on purpose
 
             watermark = options.get("watermark")
             if watermark and watermark.get("text"):
@@ -551,6 +577,7 @@ class API:
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
                    page_numbers: {format, position, start, skip_first, size},
+                   bookmarks: [{level, title, bid}] (omit = keep source bookmarks),
                    meta_mode: "keep" | "clear" | "custom", title, author}
         """
         options = options or {}
