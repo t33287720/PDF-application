@@ -119,6 +119,8 @@ html, body {
   white-space: nowrap;
 }
 .btn-primary:hover { background: var(--blue-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
+.btn-primary:disabled:hover { background: var(--blue); }
 
 .btn-tool {
   padding: 7px 13px;
@@ -134,6 +136,7 @@ html, body {
 }
 .btn-tool:hover { background: #eef2f7; border-color: #c9d4e0; }
 .btn-tool:disabled { opacity: 0.45; cursor: default; }
+.btn-tool:disabled:hover { background: var(--card-bg); border-color: var(--border); }
 .btn-tool.danger { color: var(--red); }
 .btn-tool.danger:hover { background: #fff0f0; border-color: #fca5a5; }
 
@@ -574,3 +577,23 @@ body.file-drag .editor-grid {
 .preview-nav.prev { left: 18px; }
 .preview-nav.next { right: 18px; }
 .preview-close { top: 16px; right: 18px; width: 36px; height: 36px; font-size: 16px; }
+
+/* 鍵盤操作時顯示焦點框（滑鼠點擊不會觸發） */
+button:focus-visible,
+.btn-primary:focus-visible,
+.btn-tool:focus-visible,
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* 系統設定為「減少動態效果」時，停用動畫與過場 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
