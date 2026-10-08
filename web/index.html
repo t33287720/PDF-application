@@ -37,6 +37,7 @@
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
       <button class="btn-tool" onclick="openCrop()" title="裁掉選取頁（或全部頁）的邊緣">✂ 裁切</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
+      <button class="btn-tool" onclick="openBookmarks()" title="新增、改名、刪除書籤（目錄）">🔖 書籤</button>
       <button class="btn-tool" onclick="insertBlankPage()" title="插入到選取頁之後（未選取則加在最後）">＋ 空白頁</button>
       <div class="dropdown" id="export-menu">
         <button class="btn-tool" onclick="toggleMenu('export-menu', event)">匯出 ▾</button>
@@ -204,6 +205,23 @@
       <div class="modal-btns">
         <button class="btn-tool" onclick="closeSplit()">取消</button>
         <button class="btn-primary" id="split-go" onclick="runSplit()">選擇資料夾並分割</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bookmarks (table of contents) -->
+  <div id="bookmarks-modal" class="modal-overlay">
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="bookmarks-modal-title">
+      <h3 id="bookmarks-modal-title">書籤（目錄）</h3>
+      <p class="opt-hint">編輯後的書籤會套用於儲存、擷取、分割等輸出的 PDF；刪除頁面時其書籤會一併略過</p>
+      <div class="bm-add">
+        <input type="text" id="bm-title" class="opt-input" placeholder="書籤名稱…" aria-label="書籤名稱">
+        <label class="bm-page-label">第 <input type="number" id="bm-page" class="opt-input opt-num" value="1" min="1" aria-label="頁碼"> 頁</label>
+        <button class="btn-primary" onclick="addBookmark()">加入</button>
+      </div>
+      <div id="bm-list" class="bm-list"></div>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="closeBookmarks()">關閉</button>
       </div>
     </div>
   </div>

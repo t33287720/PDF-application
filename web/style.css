@@ -578,6 +578,24 @@ body.file-drag .editor-grid {
 .preview-nav.next { right: 18px; }
 .preview-close { top: 16px; right: 18px; width: 36px; height: 36px; font-size: 16px; }
 
+/* ── Bookmarks ── */
+.bm-add { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.bm-add #bm-title { flex: 1; min-width: 0; }
+.bm-page-label { white-space: nowrap; font-size: 13px; }
+.bm-list { max-height: 40vh; overflow-y: auto; margin-bottom: 14px; }
+.bm-row { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
+.bm-name {
+  flex: 1; min-width: 0; text-align: left; background: none; border: none;
+  padding: 4px 6px; font: inherit; color: var(--blue); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bm-name:hover { text-decoration: underline; }
+.bm-name:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.bm-rename { flex: 1; min-width: 0; }
+.bm-page { font-size: 12px; color: var(--text-muted); white-space: nowrap; margin-right: 4px; }
+.bm-btn { padding: 2px 7px; font-size: 12px; }
+.modal-box p.bm-empty { font-size: 13px; color: var(--text-muted); text-align: center; padding: 14px 0; word-break: normal; }
+
 /* 鍵盤操作時顯示焦點框（滑鼠點擊不會觸發） */
 button:focus-visible,
 .btn-primary:focus-visible,

@@ -371,6 +371,41 @@ def test_metadata_custom_and_with_encryption(api, tmp_path):
     doc.close()
 
 
+def test_open_returns_source_toc(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3, toc=[[1, "One", 1], [2, "Sub", 3]])
+    res = api.open_pdf_for_editor(src)
+    assert res["ok"] and res["toc"] == [[1, "One", 0], [2, "Sub", 2]]
+
+
+def test_edited_bookmarks_follow_page_order_and_deletion(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3, toc=[[1, "Old", 1]])
+    pages = [dict(p, bid=i) for i, p in enumerate(pages_of(src, 2, 0, 1), start=1)]
+    marks = [
+        {"level": 3, "title": "第一章", "bid": 2},     # level too deep: clamped to previous + 1
+        {"level": 2, "title": "小節", "bid": 3},
+        {"level": 1, "title": "附錄", "bid": 1},
+        {"level": 1, "title": "已刪除頁", "bid": 99},   # page not in output: dropped
+        {"level": 1, "title": "  ", "bid": 1},          # empty title: dropped
+    ]
+    out = str(tmp_path / "out.pdf")
+    assert api.save_edited_pdf(pages, out, {"bookmarks": marks})["ok"]
+    doc = fitz.open(out)
+    assert doc.get_toc() == [[1, "附錄", 1], [2, "第一章", 2], [2, "小節", 3]]
+    doc.close()
+
+
+def test_edited_bookmarks_empty_list_removes_all_and_none_keeps_source(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 2, toc=[[1, "One", 1]])
+    pages = [dict(p, bid=i) for i, p in enumerate(pages_of(src, 0, 1), start=1)]
+    cleared, kept = str(tmp_path / "cleared.pdf"), str(tmp_path / "kept.pdf")
+    assert api.save_edited_pdf(pages, cleared, {"bookmarks": []})["ok"]
+    assert api.save_edited_pdf(pages, kept, {})["ok"]
+    for path, expected in ((cleared, []), (kept, [[1, "One", 1]])):
+        doc = fitz.open(path)
+        assert doc.get_toc() == expected
+        doc.close()
+
+
 @pytest.mark.parametrize("src_rot", [0, 90, 180, 270])
 @pytest.mark.parametrize("edit_rot", [0, 90])
 def test_crop_trims_margins_for_every_rotation(api, tmp_path, src_rot, edit_rot):

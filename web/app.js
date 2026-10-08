@@ -138,6 +138,12 @@ let editorPages = [];
 let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
 
+// Bookmarks: [{level, title, page}] (page = an editorPages entry). Until the user
+// edits them, export keeps the source bookmarks as before (bookmarksEdited = false).
+let bookmarks = [];
+let bookmarksEdited = false;
+let nextPageId = 1;
+
 // ── Undo / Redo ───────────────────────────────────────────────────────────────
 
 const UNDO_LIMIT = 100;
@@ -145,19 +151,26 @@ const undoStack = [];
 const redoStack = [];
 
 function snapshot() {
-  return editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted, crop: p.crop }));
+  return {
+    pages: editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted, crop: p.crop })),
+    bookmarks: bookmarks.map(b => ({ ...b })),
+    bookmarksEdited,
+  };
 }
 
 function restoreSnapshot(snap) {
-  editorPages = snap.map(s => {
+  editorPages = snap.pages.map(s => {
     s.page.rotation = s.rotation;
     s.page.deleted  = s.deleted;
     s.page.crop     = s.crop;
     syncAspect(s.page);
     return s.page;
   });
+  bookmarks = snap.bookmarks;
+  bookmarksEdited = snap.bookmarksEdited;
   markDirty();
   renderEditorGrid();
+  if (document.getElementById('bookmarks-modal').classList.contains('show')) renderBookmarks();
 }
 
 // Call before every change to page order / rotation / deletion / cropping
@@ -252,15 +265,22 @@ async function loadPdf(path, append) {
     crop:      null,
     selected:  false,
     deleted:   false,
+    id:        nextPageId++,
   }));
+  const newBookmarks = (res.toc || [])
+    .filter(([, , idx]) => newPages[idx])
+    .map(([level, title, idx]) => ({ level, title, page: newPages[idx] }));
 
   if (!append) thumbGeneration++;   // stop filling thumbnails of the old document
   if (append) {
     pushUndo();
     editorPages = [...editorPages, ...newPages];
+    bookmarks = [...bookmarks, ...newBookmarks];
     markDirty();
   } else {
     editorPages = newPages;
+    bookmarks = newBookmarks;
+    bookmarksEdited = false;
     undoStack.length = redoStack.length = 0;
     selectAnchor = null;
     markClean();
@@ -473,6 +493,7 @@ function thumbImgStyle(page) {
 function createThumb(page) {
   const div = document.createElement('div');
   div.className = page.b64 || page.blank ? 'page-thumb' : 'page-thumb loading';
+  div.dataset.pageId = page.id;
   div.draggable = true;
   div.innerHTML = `
     <div class="thumb-img-wrap">
@@ -665,7 +686,7 @@ function insertBlankPage() {
   if (ref && ref.rotation % 180) [w, h] = [h, w];
   const page = {
     blank: true, srcFile: null, origIndex: null, size: [w, h], aspect: w / h,
-    b64: null, rotation: 0, crop: null, selected: false, deleted: false,
+    b64: null, rotation: 0, crop: null, selected: false, deleted: false, id: nextPageId++,
   };
   applyEdit(() => {
     editorPages.splice(ref ? editorPages.indexOf(ref) + 1 : editorPages.length, 0, page);
@@ -900,8 +921,19 @@ document.addEventListener('keydown', e => {
 
 function buildPageList(pagesArr) {
   return pagesArr.map(p => p.blank
-    ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation }
-    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation, crop: p.crop });
+    ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation, bid: p.id }
+    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation, crop: p.crop, bid: p.id });
+}
+
+// Output options plus the edited bookmark list (omitted until edited)
+function withBookmarks(options) {
+  if (!bookmarksEdited) return options;
+  return {
+    ...options,
+    bookmarks: bookmarks
+      .filter(b => !b.page.deleted)
+      .map(b => ({ level: b.level, title: b.title, bid: b.page.id })),
+  };
 }
 
 async function saveEditor() {
@@ -924,7 +956,7 @@ async function saveEditor() {
   outputFromDialog = fromDialog;
 
   setStatus('儲存中…', true);
-  const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, options)
+  const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, withBookmarks(options))
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);
@@ -1025,7 +1057,7 @@ async function runSplit() {
     };
   });
   setStatus(`分割成 ${groups.length} 個檔案中…`, true);
-  const out = await pywebview.api.split_pdf(groups, folder, options)
+  const out = await pywebview.api.split_pdf(groups, folder, withBookmarks(options))
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(out.msg, out.ok);
   showToast(out.msg, out.ok);
@@ -1095,8 +1127,130 @@ async function extractSelected() {
   if (!out) return;
 
   setStatus('擷取中…', true);
-  const res = await pywebview.api.save_edited_pdf(buildPageList(selected), out, options)
+  const res = await pywebview.api.save_edited_pdf(buildPageList(selected), out, withBookmarks(options))
     || { ok: false, msg: '發生未知錯誤' };
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);
+}
+
+// ── Bookmarks ─────────────────────────────────────────────────────────────────
+
+setupModal('bookmarks-modal', closeBookmarks);
+
+// Bookmarks of pages still present, in page order (stable within a page)
+function visibleBookmarks() {
+  const order = new Map(editorPages.filter(p => !p.deleted).map((p, i) => [p, i]));
+  return bookmarks
+    .filter(b => order.has(b.page))
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => order.get(x.b.page) - order.get(y.b.page) || x.i - y.i)
+    .map(x => x.b);
+}
+
+function pageNumberOf(page) {
+  return editorPages.filter(p => !p.deleted).indexOf(page) + 1;
+}
+
+function openBookmarks() {
+  const sel = editorPages.filter(p => p.selected && !p.deleted);
+  document.getElementById('bm-page').value = sel.length ? pageNumberOf(sel[0]) : 1;
+  document.getElementById('bm-title').value = '';
+  document.getElementById('bookmarks-modal').classList.add('show');
+  renderBookmarks();
+  document.getElementById('bm-title').focus();
+}
+
+function closeBookmarks() {
+  document.getElementById('bookmarks-modal').classList.remove('show');
+}
+
+function renderBookmarks() {
+  const list = document.getElementById('bm-list');
+  const items = visibleBookmarks();
+  if (!items.length) {
+    list.innerHTML = '<p class="bm-empty">目前沒有書籤</p>';
+    return;
+  }
+  list.replaceChildren(...items.map(b => {
+    const row = document.createElement('div');
+    row.className = 'bm-row';
+    row.style.paddingLeft = `${(b.level - 1) * 18}px`;
+    const mk = (text, label, fn, disabled) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-tool bm-btn';
+      btn.textContent = text;
+      btn.title = btn.ariaLabel = label;
+      btn.disabled = !!disabled;
+      btn.onclick = fn;
+      return btn;
+    };
+    const name = document.createElement('button');
+    name.className = 'bm-name';
+    name.textContent = b.title;
+    name.title = `跳到第 ${pageNumberOf(b.page)} 頁`;
+    name.onclick = () => jumpToPage(b.page);
+    const pg = document.createElement('span');
+    pg.className = 'bm-page';
+    pg.textContent = `第 ${pageNumberOf(b.page)} 頁`;
+    row.append(
+      name, pg,
+      mk('◀', '提高層級', () => editBookmarks(() => b.level--), b.level <= 1),
+      mk('▶', '降低層級', () => editBookmarks(() => b.level++), b.level >= 6),
+      mk('✎', '改名', () => {
+        const input = document.createElement('input');
+        input.className = 'opt-input bm-rename';
+        input.value = b.title;
+        input.setAttribute('aria-label', '書籤名稱');
+        let done = false;
+        const finish = save => {
+          if (done) return;
+          done = true;
+          const t = input.value.trim();
+          if (save && t && t !== b.title) editBookmarks(() => { b.title = t; });
+          else renderBookmarks();
+        };
+        input.onkeydown = e => {
+          if (e.key === 'Enter')  finish(true);
+          if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+        };
+        input.onblur = () => finish(true);
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+      }),
+      mk('✕', '刪除書籤', () => editBookmarks(() => { bookmarks = bookmarks.filter(x => x !== b); })),
+    );
+    return row;
+  }));
+}
+
+function editBookmarks(change) {
+  pushUndo();
+  change();
+  bookmarksEdited = true;
+  markDirty();
+  renderBookmarks();
+  updateUndoButtons();
+}
+
+function addBookmark() {
+  const titleEl = document.getElementById('bm-title');
+  const title = titleEl.value.trim();
+  const active = editorPages.filter(p => !p.deleted);
+  const n = Math.round(Number(document.getElementById('bm-page').value));
+  if (!title) { showToast('請輸入書籤名稱！', false); titleEl.focus(); return; }
+  if (!(n >= 1 && n <= active.length)) { showToast(`頁碼須介於 1 – ${active.length}`, false); return; }
+  editBookmarks(() => bookmarks.push({ level: 1, title, page: active[n - 1] }));
+  titleEl.value = '';
+  titleEl.focus();
+}
+
+document.getElementById('bm-title').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addBookmark();
+});
+
+function jumpToPage(page) {
+  closeBookmarks();
+  const el = document.querySelector(`#editor-grid [data-page-id="${page.id}"]`);
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
