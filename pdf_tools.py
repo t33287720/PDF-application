@@ -225,6 +225,28 @@ def _apply_metadata(doc, options):
     doc.del_xml_metadata()
 
 
+def _apply_crop(page, margins):
+    """Shrink the page's visible area by margins [left, top, right, bottom] in pt,
+    measured on the page as currently displayed (including its own /Rotate).
+    Non-destructive: only the CropBox changes, the content stays in the file."""
+    left, top, right, bottom = (max(float(m), 0.0) for m in margins)
+    view = page.rect
+    if left + right >= view.width - 1 or top + bottom >= view.height - 1:
+        return   # nothing would be left; ignore rather than produce an empty page
+    box = page.cropbox   # unrotated, relative to the MediaBox
+    x0, y0, x1, y1 = left, top, view.width - right, view.height - bottom
+    # Map the visible rectangle from the rotated view back to unrotated page space
+    if page.rotation == 90:
+        u0, v0, u1, v1 = y0, box.height - x1, y1, box.height - x0
+    elif page.rotation == 180:
+        u0, v0, u1, v1 = box.width - x1, box.height - y1, box.width - x0, box.height - y0
+    elif page.rotation == 270:
+        u0, v0, u1, v1 = box.width - y1, x0, box.width - y0, x1
+    else:
+        u0, v0, u1, v1 = x0, y0, x1, y1
+    page.set_cropbox(fitz.Rect(u0 + box.x0, v0 + box.y0, u1 + box.x0, v1 + box.y0))
+
+
 def _add_page_numbers(doc, spec):
     """spec: {format ('{n}', '{total}' placeholders), position, start, skip_first, size}"""
     fmt = spec.get("format") or "{n}"
@@ -462,6 +484,8 @@ class API:
                 for doc in open_docs.values():
                     doc.close()
             for pg, p in zip(new_doc, pages):
+                if p.get("crop") and not p.get("blank"):
+                    _apply_crop(pg, p["crop"])   # before rotating: margins are relative to the unrotated view
                 if p["rotation"]:
                     pg.set_rotation((pg.rotation + p["rotation"]) % 360)
             if toc:
@@ -572,7 +596,7 @@ class API:
 
     def save_edited_pdf(self, pages, out, options=None):
         """
-        pages   : list of {src, orig_idx, rotation} or {blank: true, width, height, rotation}
+        pages   : list of {src, orig_idx, rotation, crop?: [l, t, r, b] pt} or {blank: true, width, height, rotation}
         out     : output path (empty = auto)
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
