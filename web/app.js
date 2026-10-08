@@ -132,7 +132,8 @@ function askPassword(msg) {
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 
-// [{srcFile, srcName, srcOrig, origIndex, size, aspect, b64, rotation, selected, deleted, blank?}]
+// [{srcFile, srcName, srcOrig, origIndex, size, aspect, b64, rotation, crop, selected, deleted, blank?}]
+// crop: null or [left, top, right, bottom] in pt, relative to the page before rotation
 let editorPages = [];
 let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
@@ -144,20 +145,22 @@ const undoStack = [];
 const redoStack = [];
 
 function snapshot() {
-  return editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted }));
+  return editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted, crop: p.crop }));
 }
 
 function restoreSnapshot(snap) {
   editorPages = snap.map(s => {
     s.page.rotation = s.rotation;
     s.page.deleted  = s.deleted;
+    s.page.crop     = s.crop;
+    syncAspect(s.page);
     return s.page;
   });
   markDirty();
   renderEditorGrid();
 }
 
-// Call before every change to page order / rotation / deletion
+// Call before every change to page order / rotation / deletion / cropping
 function pushUndo() {
   undoStack.push(snapshot());
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
@@ -246,6 +249,7 @@ async function loadPdf(path, append) {
     size:      [w, h],    // points, as displayed before any rotation here
     aspect:    w / h,
     rotation:  0,
+    crop:      null,
     selected:  false,
     deleted:   false,
   }));
@@ -289,7 +293,8 @@ async function loadThumbnails(path, pages) {
       const page = pages[start + i];
       page.b64 = b64;
       if (page.el) {
-        page.el.querySelector('img').src = b64;
+        if (page.crop) refreshCropThumb(page);
+        else page.el.querySelector('img').src = b64;
         page.el.classList.remove('loading');
       }
     });
@@ -558,7 +563,9 @@ function updateThumb(page, displayIdx, srcName) {
   div.querySelector('.thumb-img-wrap').style.cssText = thumbWrapStyle(page);
   const img = div.querySelector('img');
   img.style.cssText = thumbImgStyle(page);
-  if (page.b64 && img.getAttribute('src') !== page.b64) img.src = page.b64;
+  if (page.crop) refreshCropThumb(page);
+  const shown = page.crop ? page.cropSrc : page.b64;
+  if (shown && img.getAttribute('src') !== shown) img.src = shown;
   const badge = div.querySelector('.rotation-badge');
   badge.textContent = page.rotation ? `↻ ${page.rotation}°` : '';
   badge.style.display = page.rotation ? '' : 'none';
@@ -654,11 +661,11 @@ function insertBlankPage() {
   const visible  = editorPages.filter(p => !p.deleted);
   const selected = visible.filter(p => p.selected);
   const ref = selected.length ? selected[selected.length - 1] : visible[visible.length - 1];
-  let [w, h] = ref ? ref.size : [595, 842];   // A4
+  let [w, h] = ref ? croppedSize(ref) : [595, 842];   // A4
   if (ref && ref.rotation % 180) [w, h] = [h, w];
   const page = {
     blank: true, srcFile: null, origIndex: null, size: [w, h], aspect: w / h,
-    b64: null, rotation: 0, selected: false, deleted: false,
+    b64: null, rotation: 0, crop: null, selected: false, deleted: false,
   };
   applyEdit(() => {
     editorPages.splice(ref ? editorPages.indexOf(ref) + 1 : editorPages.length, 0, page);
@@ -669,6 +676,133 @@ function editorRotateSelected() {
   const targets = editorPages.filter(p => p.selected && !p.deleted);
   if (!targets.length) { showToast('請先選取要旋轉的頁面！', false); return; }
   applyEdit(() => targets.forEach(p => p.rotation = (p.rotation + 90) % 360));
+}
+
+// ── Crop ──────────────────────────────────────────────────────────────────────
+
+const MM_TO_PT = 72 / 25.4;
+const MIN_CROPPED_PT = 10;   // never leave less than this of a page
+
+setupModal('crop-modal', closeCrop);
+
+// Size in pt of what remains of the page after cropping (before rotation)
+function croppedSize(page) {
+  const [l, t, r, b] = page.crop || [0, 0, 0, 0];
+  return [page.size[0] - l - r, page.size[1] - t - b];
+}
+
+function syncAspect(page) {
+  const [w, h] = croppedSize(page);
+  page.aspect = w / h;
+}
+
+// Margins [l, t, r, b] as seen after turning the page `deg` clockwise, and back
+function toDisplayed(m, deg) {
+  for (let i = 0; i < deg / 90; i++) m = [m[3], m[0], m[1], m[2]];
+  return m;
+}
+function fromDisplayed(m, deg) {
+  for (let i = 0; i < deg / 90; i++) m = [m[1], m[2], m[3], m[0]];
+  return m;
+}
+
+// Resolves to a data URL of `src` (a render of the whole page) trimmed by `crop`, or null
+function cropImage(src, size, crop) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const k = img.naturalWidth / size[0];
+      const [l, t, r, b] = crop;
+      const w = Math.max(1, Math.round((size[0] - l - r) * k));
+      const h = Math.max(1, Math.round((size[1] - t - b) * k));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, l * k, t * k, w, h, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// Builds the cropped thumbnail in the background, then redraws
+async function refreshCropThumb(page) {
+  if (!page.crop || !page.b64) return;
+  const key = page.crop.join(',');
+  if (page.cropKey === key) return;
+  page.cropKey = key;
+  const src = await cropImage(page.b64, page.size, page.crop);
+  if (!src || page.cropKey !== key) return;
+  page.cropSrc = src;
+  renderEditorGrid();
+}
+
+const cropInputs = { top: 'crop-top', bottom: 'crop-bottom', left: 'crop-left', right: 'crop-right' };
+
+function cropTargets() {
+  const all = document.querySelector('input[name="crop-target"]:checked').value === 'all';
+  return editorPages.filter(p => !p.deleted && !p.blank && (all || p.selected));
+}
+
+function updateCropSummary() {
+  const n = cropTargets().length;
+  document.getElementById('crop-summary').textContent =
+    n ? `將套用到 ${n} 頁（空白頁不會裁切）` : '沒有可裁切的頁面，請先選取頁面';
+}
+
+function openCrop() {
+  const hasSelection = editorPages.some(p => p.selected && !p.deleted && !p.blank);
+  document.querySelector(`input[name="crop-target"][value="${hasSelection ? 'selected' : 'all'}"]`).checked = true;
+  // Start from the first target's current margins, as seen on screen
+  const first = cropTargets()[0];
+  const [l, t, r, b] = first && first.crop ? toDisplayed(first.crop, first.rotation) : [0, 0, 0, 0];
+  const values = { left: l, top: t, right: r, bottom: b };
+  for (const [side, id] of Object.entries(cropInputs)) {
+    document.getElementById(id).value = +(values[side] / MM_TO_PT).toFixed(1);
+  }
+  updateCropSummary();
+  document.getElementById('crop-modal').classList.add('show');
+  document.getElementById(cropInputs.top).focus();
+}
+
+function closeCrop() {
+  document.getElementById('crop-modal').classList.remove('show');
+}
+
+document.querySelectorAll('input[name="crop-target"]').forEach(el => el.addEventListener('change', updateCropSummary));
+
+// Sets (replaces) the crop of the target pages; all zeros removes it
+function applyCrop() {
+  const mm = {};
+  for (const [side, id] of Object.entries(cropInputs)) {
+    const v = parseFloat(document.getElementById(id).value);
+    if (!(v >= 0)) { showToast('裁切寬度必須是 0 以上的數字', false); return; }
+    mm[side] = v * MM_TO_PT;
+  }
+  const targets = cropTargets();
+  if (!targets.length) { showToast('請先選取要裁切的頁面！', false); return; }
+
+  const displayed = [mm.left, mm.top, mm.right, mm.bottom];
+  const clearing = displayed.every(v => v === 0);
+  const plan = targets.map(p => {
+    const crop = clearing ? null : fromDisplayed(displayed, p.rotation);
+    const ok = !crop || (p.size[0] - crop[0] - crop[2] >= MIN_CROPPED_PT &&
+                         p.size[1] - crop[1] - crop[3] >= MIN_CROPPED_PT);
+    return { page: p, crop, ok };
+  });
+  const skipped = plan.filter(x => !x.ok).length;
+  if (skipped === plan.length) { showToast('裁切範圍超過頁面大小，請縮小數值', false); return; }
+
+  closeCrop();
+  applyEdit(() => plan.forEach(({ page, crop, ok }) => {
+    if (!ok) return;
+    page.crop = crop;
+    page.cropKey = page.cropSrc = null;
+    syncAspect(page);
+  }));
+  showToast(clearing ? '已清除裁切'
+    : `已裁切 ${plan.length - skipped} 頁` + (skipped ? `（${skipped} 頁因超出頁面大小而略過）` : '') + '（Ctrl+Z 可復原）', true);
 }
 
 // ── Page preview ──────────────────────────────────────────────────────────────
@@ -697,7 +831,8 @@ async function openPreview(page) {
     : await pywebview.api.get_preview(page.srcFile, page.origIndex);
   if (token !== previewToken) return;  // user moved on to another page
   if (!res || !res.ok) { closePreview(); showToast(res ? res.msg : '預覽失敗', false); return; }
-  img.src = res.b64;
+  img.src = page.crop ? await cropImage(res.b64, page.size, page.crop) || res.b64 : res.b64;
+  if (token !== previewToken) return;
   img.style.transform = page.rotation ? `rotate(${page.rotation}deg)` : '';
   img.classList.toggle('quarter', page.rotation % 180 !== 0);
   fig.classList.add('ready');
@@ -766,7 +901,7 @@ document.addEventListener('keydown', e => {
 function buildPageList(pagesArr) {
   return pagesArr.map(p => p.blank
     ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation }
-    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation });
+    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation, crop: p.crop });
 }
 
 async function saveEditor() {

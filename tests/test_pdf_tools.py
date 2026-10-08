@@ -369,3 +369,60 @@ def test_metadata_custom_and_with_encryption(api, tmp_path):
     assert doc.metadata["title"] == "合約" and doc.metadata["author"] == "我"
     assert not doc.metadata["creator"]
     doc.close()
+
+
+@pytest.mark.parametrize("src_rot", [0, 90, 180, 270])
+@pytest.mark.parametrize("edit_rot", [0, 90])
+def test_crop_trims_margins_for_every_rotation(api, tmp_path, src_rot, edit_rot):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    doc = fitz.open(src)
+    doc[0].set_rotation(src_rot)
+    before = doc[0].search_for("Page 1")[0] * doc[0].rotation_matrix   # search_for ignores /Rotate
+    before.normalize()
+    view = doc[0].rect
+    doc.save(str(tmp_path / "rot.pdf"))
+    doc.close()
+
+    left, top, right, bottom = 50, 60, 20, 10
+    out = str(tmp_path / "out.pdf")
+    page = {"src": str(tmp_path / "rot.pdf"), "orig_idx": 0, "rotation": edit_rot,
+            "crop": [left, top, right, bottom]}
+    assert api.save_edited_pdf([page], out)["ok"]
+
+    res = fitz.open(out)
+    pg = res[0]
+    w, h = view.width - left - right, view.height - top - bottom
+    expected = (w, h) if edit_rot == 0 else (h, w)
+    assert (round(pg.rect.width), round(pg.rect.height)) == tuple(round(v) for v in expected)
+    if edit_rot == 0:   # the text moved by exactly the cropped margins
+        after = pg.search_for("Page 1")[0] * pg.rotation_matrix
+        after.normalize()
+        assert after.x0 == pytest.approx(before.x0 - left, abs=0.5)
+        assert after.y0 == pytest.approx(before.y0 - top, abs=0.5)
+    res.close()
+
+
+def test_crop_skips_blank_pages_and_oversized_margins(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    out = str(tmp_path / "out.pdf")
+    pages = [dict(blank(300, 400), crop=[10, 10, 10, 10]),
+             {"src": src, "orig_idx": 0, "rotation": 0, "crop": [400, 0, 400, 0]}]
+    assert api.save_edited_pdf(pages, out)["ok"]
+    res = fitz.open(out)
+    assert (res[0].rect.width, res[0].rect.height) == (300, 400)
+    assert (res[1].rect.width, res[1].rect.height) == (595, 842)
+    res.close()
+
+
+def test_crop_respects_existing_cropbox(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    doc = fitz.open(src)
+    doc[0].set_cropbox(fitz.Rect(30, 40, 500, 700))
+    doc.save(str(tmp_path / "cb.pdf"))
+    doc.close()
+    out = str(tmp_path / "out.pdf")
+    page = {"src": str(tmp_path / "cb.pdf"), "orig_idx": 0, "rotation": 0, "crop": [10, 20, 0, 0]}
+    assert api.save_edited_pdf([page], out)["ok"]
+    res = fitz.open(out)
+    assert (round(res[0].rect.width), round(res[0].rect.height)) == (460, 640)
+    res.close()
