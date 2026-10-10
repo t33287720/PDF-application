@@ -1115,6 +1115,22 @@ async function exportImages() {
   showToast(res.msg, res.ok);
 }
 
+async function exportText() {
+  const live = editorPages.filter(p => !p.deleted);
+  const selected = live.filter(p => p.selected);
+  const pages = selected.length ? selected : live;
+  if (!pages.length) { showToast('沒有頁面可匯出！', false); return; }
+
+  const out = await pywebview.api.browse_save(exportPrefix(pages), 'txt');
+  if (!out) return;
+
+  setStatus(`匯出 ${pages.length} 頁文字中…`, true);
+  const res = await pywebview.api.export_text(buildPageList(pages), out)
+    || { ok: false, msg: '發生未知錯誤' };
+  setStatus(res.msg, res.ok);
+  showToast(res.msg, res.ok);
+}
+
 async function extractSelected() {
   const selected = editorPages.filter(p => !p.deleted && p.selected);
   if (!selected.length) { showToast('請先選取要擷取的頁面！', false); return; }
