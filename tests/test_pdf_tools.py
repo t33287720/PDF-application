@@ -328,6 +328,24 @@ def test_export_images(api, tmp_path):
     assert os.path.getsize(out_dir / "q_001 (2).jpg") < os.path.getsize(out_dir / "q_001.jpg")
 
 
+def test_export_text(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    out = tmp_path / "t"
+    res = api.export_text(pages_of(src, 2, 0), str(out))
+    assert res["ok"] and res["count"] == 2
+    content = (tmp_path / "t.txt").read_text(encoding="utf-8")
+    assert content.index("第 1 頁") < content.index("Page 3") < content.index("第 2 頁") < content.index("Page 1")
+    assert not api.export_text([], str(out))["ok"]
+
+
+def test_export_text_without_text_layer(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    res = api.export_text([blank()], str(tmp_path / "t.txt"))
+    assert not res["ok"] and "掃描" in res["msg"]
+    assert not (tmp_path / "t.txt").exists()
+    assert api.export_text(pages_of(src, 0) + [blank()], str(tmp_path / "t.txt"))["ok"]
+
+
 def test_split_pdf(api, tmp_path):
     src = make_pdf(tmp_path / "a.pdf", 5)
     out_dir = tmp_path / "parts"
