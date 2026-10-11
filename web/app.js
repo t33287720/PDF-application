@@ -649,6 +649,22 @@ function editorDeleteSelected() {
   showToast(`已刪除 ${targets.length} 頁（Ctrl+Z 可復原）`, true);
 }
 
+async function detectBlankPages() {
+  const live = editorPages.filter(p => !p.deleted);
+  if (!live.length) { showToast('沒有頁面可偵測！', false); return; }
+  setStatus('偵測空白頁中…', true);
+  const res = await pywebview.api.detect_blank_pages(buildPageList(live))
+    || { ok: false, msg: '發生未知錯誤' };
+  if (!res.ok) { setStatus(res.msg, false); showToast(res.msg, false); return; }
+  live.forEach((p, i) => { p.selected = res.blank.includes(i); });
+  renderEditorGrid();
+  const msg = res.blank.length
+    ? `找到 ${res.blank.length} 個空白頁並已選取，確認後按「刪除」移除`
+    : '沒有找到空白頁';
+  setStatus(msg, true);
+  showToast(msg, true);
+}
+
 // Inserts after the last selected page (or at the end), sized like its neighbour
 function insertBlankPage() {
   const visible  = editorPages.filter(p => !p.deleted);

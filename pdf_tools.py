@@ -555,6 +555,30 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
+    def detect_blank_pages(self, pages, threshold=0.002):
+        """Return the positions (within `pages`) of pages that look blank:
+        no text, no images, and almost no dark pixels at a low-DPI render.
+        `threshold` is the largest tolerated fraction of non-white pixels."""
+        try:
+            with self._lock:
+                doc = self._build_doc(pages, {})
+                try:
+                    blanks = []
+                    for i, page in enumerate(doc):
+                        if page.get_text().strip() or page.get_images():
+                            continue
+                        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5),
+                                              colorspace=fitz.csGRAY, alpha=False)
+                        samples = pix.samples
+                        dark = sum(1 for v in samples if v < 235)
+                        if dark <= threshold * max(len(samples), 1):
+                            blanks.append(i)
+                finally:
+                    doc.close()
+            return {"ok": True, "blank": blanks}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def get_preview(self, path, index):
         try:
             with self._lock:
