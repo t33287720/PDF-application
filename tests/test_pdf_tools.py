@@ -328,6 +328,38 @@ def test_export_images(api, tmp_path):
     assert os.path.getsize(out_dir / "q_001 (2).jpg") < os.path.getsize(out_dir / "q_001.jpg")
 
 
+def test_export_text(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    out = tmp_path / "t"
+    res = api.export_text(pages_of(src, 2, 0), str(out))
+    assert res["ok"] and res["count"] == 2
+    content = (tmp_path / "t.txt").read_text(encoding="utf-8")
+    assert content.index("第 1 頁") < content.index("Page 3") < content.index("第 2 頁") < content.index("Page 1")
+    assert not api.export_text([], str(out))["ok"]
+
+
+def test_export_text_without_text_layer(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    res = api.export_text([blank()], str(tmp_path / "t.txt"))
+    assert not res["ok"] and "掃描" in res["msg"]
+    assert not (tmp_path / "t.txt").exists()
+    assert api.export_text(pages_of(src, 0) + [blank()], str(tmp_path / "t.txt"))["ok"]
+
+
+def test_detect_blank_pages(api, tmp_path):
+    doc = fitz.open()
+    doc.new_page()                                    # 0: pure white
+    doc.new_page().insert_text((72, 100), "Hi", fontsize=30)  # 1: text
+    noisy = doc.new_page()                            # 2: one tiny speck
+    noisy.draw_rect(fitz.Rect(100, 100, 102, 102), fill=(0, 0, 0))
+    doc.new_page().draw_rect(fitz.Rect(50, 50, 500, 700), fill=(0, 0, 0))  # 3: drawing only
+    path = str(tmp_path / "b.pdf")
+    doc.save(path)
+    doc.close()
+    res = api.detect_blank_pages(pages_of(path, 0, 1, 2, 3) + [blank()])
+    assert res == {"ok": True, "blank": [0, 2, 4]}
+
+
 def test_split_pdf(api, tmp_path):
     src = make_pdf(tmp_path / "a.pdf", 5)
     out_dir = tmp_path / "parts"

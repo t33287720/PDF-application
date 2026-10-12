@@ -367,12 +367,14 @@ class API:
         self._remember_dir(result[0])
         return list(result)
 
-    def browse_save(self, default_name="output"):
+    def browse_save(self, default_name="output", ext="pdf"):
+        ext = "txt" if ext == "txt" else "pdf"
+        label = "Text Files" if ext == "txt" else "PDF Files"
         result = webview.windows[0].create_file_dialog(
             webview.FileDialog.SAVE,
             directory=self._last_dir(),
-            save_filename=f"{default_name}.pdf",
-            file_types=("PDF Files (*.pdf)",)
+            save_filename=f"{default_name}.{ext}",
+            file_types=(f"{label} (*.{ext})",)
         )
         if not result:
             return ""
@@ -576,6 +578,54 @@ class API:
                 finally:
                     doc.close()
             return {"ok": True, "count": count, "msg": f"已匯出 {count} 張圖片到：{folder}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def export_text(self, pages, path):
+        """Write the embedded text of the given pages to a UTF-8 .txt file,
+        each page headed by a separator line carrying its number."""
+        try:
+            if not pages:
+                return {"ok": False, "msg": "沒有頁面可匯出！"}
+            if not path.lower().endswith(".txt"):
+                path += ".txt"
+            with self._lock:
+                doc = self._build_doc(pages, {})
+                try:
+                    chunks = [f"===== 第 {i} 頁 =====\n{page.get_text().strip()}\n"
+                              for i, page in enumerate(doc, start=1)]
+                    has_text = any(page.get_text().strip() for page in doc)
+                finally:
+                    doc.close()
+            if not has_text:
+                return {"ok": False, "msg": "這份是掃描影像，無法擷取文字"}
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(chunks))
+            return {"ok": True, "count": len(chunks), "msg": f"已匯出 {len(chunks)} 頁文字：{path}"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def detect_blank_pages(self, pages, threshold=0.002):
+        """Return the positions (within `pages`) of pages that look blank:
+        no text, no images, and almost no dark pixels at a low-DPI render.
+        `threshold` is the largest tolerated fraction of non-white pixels."""
+        try:
+            with self._lock:
+                doc = self._build_doc(pages, {})
+                try:
+                    blanks = []
+                    for i, page in enumerate(doc):
+                        if page.get_text().strip() or page.get_images():
+                            continue
+                        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5),
+                                              colorspace=fitz.csGRAY, alpha=False)
+                        samples = pix.samples
+                        dark = sum(1 for v in samples if v < 235)
+                        if dark <= threshold * max(len(samples), 1):
+                            blanks.append(i)
+                finally:
+                    doc.close()
+            return {"ok": True, "blank": blanks}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 

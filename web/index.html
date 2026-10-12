@@ -39,12 +39,14 @@
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
       <button class="btn-tool" onclick="openBookmarks()" title="新增、改名、刪除書籤（目錄）">🔖 書籤</button>
       <button class="btn-tool" onclick="insertBlankPage()" title="插入到選取頁之後（未選取則加在最後）">＋ 空白頁</button>
+      <button class="btn-tool" onclick="detectBlankPages()" title="自動選取沒有文字、圖片的空白頁，再按「刪除」移除">偵測空白頁</button>
       <div class="dropdown" id="export-menu">
         <button class="btn-tool" onclick="toggleMenu('export-menu', event)">匯出 ▾</button>
         <div class="dropdown-menu">
           <button onclick="extractSelected()">擷取選取頁為 PDF…</button>
           <button onclick="openSplit()">分割成多個 PDF…</button>
           <button onclick="openImageExport()">轉成圖片…</button>
+          <button onclick="exportText()" title="有選取頁就只匯出選取頁，否則匯出全部">文字 (.txt)…</button>
         </div>
       </div>
     </div>
