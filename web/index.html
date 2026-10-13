@@ -35,6 +35,8 @@
       <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" aria-label="重做" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
+      <button class="btn-tool" onclick="reversePages()" title="反轉選取頁（未選取則全部頁）的順序">⇅ 反轉順序</button>
+      <button class="btn-tool" onclick="interleaveDuplex()" title="雙面掃描：前半為正面、後半為反面（倒序），交錯合併成正確頁序">交錯合併</button>
       <button class="btn-tool" onclick="openCrop()" title="裁掉選取頁（或全部頁）的邊緣">✂ 裁切</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
       <button class="btn-tool" onclick="openBookmarks()" title="新增、改名、刪除書籤（目錄）">🔖 書籤</button>
