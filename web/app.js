@@ -311,12 +311,15 @@ async function loadThumbnails(path, pages) {
     if (!res || !res.ok) { setStatus(`縮圖載入失敗：${res ? res.msg : '未知錯誤'}`, false); return; }
     res.thumbs.forEach((b64, i) => {
       const page = pages[start + i];
-      page.b64 = b64;
-      if (page.el) {
-        if (page.crop) refreshCropThumb(page);
-        else page.el.querySelector('img').src = b64;
-        page.el.classList.remove('loading');
-      }
+      // Copies made (duplicatePages) while this thumbnail was still loading share it
+      [page, ...editorPages.filter(q => q.dupOf === page)].forEach(q => {
+        q.b64 = b64;
+        if (q.el) {
+          if (q.crop) refreshCropThumb(q);
+          else q.el.querySelector('img').src = b64;
+          q.el.classList.remove('loading');
+        }
+      });
     });
   }
 }
@@ -709,6 +712,52 @@ function insertBlankPage() {
   });
 }
 
+// Puts a copy of each selected page right after it (rotation and crop are kept;
+// a bookmark stays on the original page)
+function duplicatePages() {
+  const targets = editorPages.filter(p => p.selected && !p.deleted);
+  if (!targets.length) { showToast('請先選取要複製的頁面！', false); return; }
+  applyEdit(() => {
+    targets.forEach(p => {
+      const copy = { ...p, id: nextPageId++, selected: false, el: null, dupOf: p.dupOf || p };
+      editorPages.splice(editorPages.indexOf(p) + 1, 0, copy);
+    });
+  });
+  showToast(`已複製 ${targets.length} 頁`, true);
+}
+
+// Rewrites the order of `targets` (live pages) in place, leaving deleted pages and
+// every other page where they are
+function reorderPages(targets, newOrder) {
+  const slots = targets.map(p => editorPages.indexOf(p));
+  newOrder.forEach((p, i) => { editorPages[slots[i]] = p; });
+}
+
+// Reverses the selected pages (or all pages when nothing is selected)
+function reversePages() {
+  const live = editorPages.filter(p => !p.deleted);
+  const selected = live.filter(p => p.selected);
+  const targets = selected.length ? selected : live;
+  if (targets.length < 2) { showToast('至少需要兩頁才能反轉順序！', false); return; }
+  applyEdit(() => reorderPages(targets, [...targets].reverse()));
+  showToast(selected.length ? '已反轉選取頁的順序' : '已反轉全部頁面的順序', true);
+}
+
+// Double-sided scan with a single-sided feeder: first half = fronts, second half =
+// backs in reverse order. Result: front 1, back 1, front 2, back 2 ...
+function interleaveDuplex() {
+  const live = editorPages.filter(p => !p.deleted);
+  if (live.length < 2 || live.length % 2) {
+    showToast(`目前有 ${live.length} 頁，雙面掃描需為偶數頁（前半正面、後半反面）。請先用刪除／空白頁補齊`, false);
+    return;
+  }
+  const half = live.length / 2;
+  const fronts = live.slice(0, half);
+  const backs  = live.slice(half).reverse();
+  applyEdit(() => reorderPages(live, fronts.flatMap((f, i) => [f, backs[i]])));
+  showToast('已交錯合併正反面', true);
+}
+
 function editorRotateSelected() {
   const targets = editorPages.filter(p => p.selected && !p.deleted);
   if (!targets.length) { showToast('請先選取要旋轉的頁面！', false); return; }
@@ -929,6 +978,7 @@ document.addEventListener('keydown', e => {
     renderEditorGrid();
   }
   else if (!ctrl && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); editorDeleteSelected(); }
+  else if (ctrl && key === 'd') { e.preventDefault(); duplicatePages(); }
   else if (!ctrl && key === 'r')      editorRotateSelected();
   else if (e.key === 'Escape')        editorClearSelection();
 });
