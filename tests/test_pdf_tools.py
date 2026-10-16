@@ -144,6 +144,17 @@ def test_save_remaps_bookmarks(api, tmp_path):
     doc.close()
 
 
+def test_save_duplicate_pages_keeps_first_bookmark(api, tmp_path):
+    src = make_pdf(tmp_path / "dup.pdf", 3, toc=[[1, "Two", 2]])
+    out = str(tmp_path / "out.pdf")
+    api.save_edited_pdf(pages_of(src, 0, 1, 1, 2), out)
+    doc = fitz.open(out)
+    assert len(doc) == 4
+    assert [doc[i].get_text().strip() for i in range(4)] == ["Page 1", "Page 2", "Page 2", "Page 3"]
+    assert doc.get_toc() == [[1, "Two", 2]]
+    doc.close()
+
+
 def test_compress_downsamples_images(api, tmp_path):
     # a noisy (poorly compressible) 1500px image shown at ~3 inches -> ~500 DPI
     doc = fitz.open()
