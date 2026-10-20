@@ -615,3 +615,9 @@ input[type="range"]:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Stamp placement preview */
+.stamp-stage { position: relative; display: block; width: fit-content; max-width: 100%; margin: 0 auto; cursor: crosshair;
+  border: 1px solid var(--border, #ccc); line-height: 0; user-select: none; }
+.stamp-stage #stamp-page { max-width: 100%; max-height: 40vh; display: block; }
+.stamp-stage #stamp-overlay { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
