@@ -585,3 +585,34 @@ def test_load_stamp_image_returns_preview_and_remembers_path(api, tmp_path):
     assert res["ok"] and res["b64"].startswith("data:image/png;base64,")
     assert api.get_last_stamp_image()["path"] == stamp
     assert not api.load_stamp_image(str(tmp_path / "missing.png"))["ok"]
+
+
+def test_redact_removes_text_layer(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    out = str(tmp_path / "r.pdf")
+    wm = {"text": "Page 1", "size": "medium", "opacity": 0.3, "diagonal": False}
+    assert api.save_edited_pdf(pages_of(src, 0, 1, 2), out,
+                               {"redact": {"keywords": ["Page 2", "  "]}})["ok"]
+    doc = fitz.open(out)
+    got = [pg.get_text() for pg in doc]
+    doc.close()
+    assert "Page 2" not in got[1] and "Page 1" in got[0] and "Page 3" in got[2]
+    # black box is drawn where the text was
+    doc = fitz.open(out)
+    assert min(_render_gray(doc[1]).samples) == 0
+    doc.close()
+    # redaction happens before the watermark, so a watermark with the same words survives
+    out2 = str(tmp_path / "r2.pdf")
+    assert api.save_edited_pdf(pages_of(src, 0), out2,
+                               {"redact": {"keywords": ["Page 1"]}, "watermark": wm})["ok"]
+    doc = fitz.open(out2)
+    assert "Page 1" in doc[0].get_text()
+    doc.close()
+
+
+def test_count_redactions(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    res = api.count_redactions(pages_of(src, 0, 1, 2), ["Page", "Page 2"])
+    assert res == {"ok": True, "hits": 4, "has_text": True}
+    assert api.count_redactions(pages_of(src, 0), ["zzz"])["hits"] == 0
+    assert not api.count_redactions(pages_of(src, 0), [" "])["ok"]

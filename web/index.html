@@ -165,6 +165,16 @@
       </section>
 
       <section class="opt-section">
+        <label class="opt-toggle"><input type="checkbox" id="opt-redact"> 塗黑遮蓋（永久刪除敏感文字）</label>
+        <div class="opt-body" data-for="opt-redact">
+          <textarea id="opt-redact-words" class="opt-input opt-wide" rows="3" placeholder="每行一個關鍵字，例如身分證字號、電話"></textarea>
+          <button class="btn-tool" type="button" onclick="previewRedactions()">預覽命中數</button>
+          <span class="opt-note" id="opt-redact-result"></span>
+          <span class="opt-note">輸出的檔案會連底層文字一併移除，無法還原（原檔不受影響）。只處理文字層，純圖片掃描檔需先 OCR。</span>
+        </div>
+      </section>
+
+      <section class="opt-section">
         <label class="opt-row">壓縮圖片
           <select id="opt-compress" class="opt-select">
             <option value="none">不壓縮</option>

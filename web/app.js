@@ -456,6 +456,11 @@ function getOutputOptions() {
       skip_first: document.getElementById('opt-pn-skip').checked,
     };
   }
+  if (document.getElementById('opt-redact').checked) {
+    const keywords = redactKeywords();
+    if (!keywords.length) { showToast('請輸入要塗黑的關鍵字！', false); return null; }
+    opts.redact = { keywords };
+  }
   const metaMode = document.getElementById('opt-meta').value;
   if (metaMode !== 'keep') {
     opts.meta_mode = metaMode;
@@ -467,9 +472,27 @@ function getOutputOptions() {
   return opts;
 }
 
+function redactKeywords() {
+  return document.getElementById('opt-redact-words').value
+    .split(/\r?\n/).map(k => k.trim()).filter(Boolean);
+}
+
+async function previewRedactions() {
+  const result = document.getElementById('opt-redact-result');
+  const keywords = redactKeywords();
+  const active = editorPages.filter(p => !p.deleted);
+  if (!keywords.length) { result.textContent = '請先輸入關鍵字'; return; }
+  if (!active.length) { result.textContent = '尚未開啟任何頁面'; return; }
+  result.textContent = '計算中…';
+  const res = await pywebview.api.count_redactions(buildPageList(active), keywords);
+  result.textContent = !res.ok ? res.msg
+    : !res.has_text ? '找不到文字層（可能是掃描檔，需先 OCR）'
+    : `共命中 ${res.hits} 處`;
+}
+
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.meta_mode].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.redact, opts.meta_mode].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);

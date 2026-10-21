@@ -280,6 +280,27 @@ def _add_stamp(page, stamp, cache):
     page.insert_image(rect.normalize(), pixmap=pix, rotate=page.rotation, overlay=True)
 
 
+def _clean_keywords(keywords):
+    return [k.strip() for k in (keywords or []) if isinstance(k, str) and k.strip()]
+
+
+def _redact_text(doc, keywords):
+    """Permanently remove every occurrence of the keywords (text layer only) and
+    paint a black box over it. Returns the number of hits."""
+    keywords = _clean_keywords(keywords)
+    hits = 0
+    for page in doc:
+        found = False
+        for kw in keywords:
+            for rect in page.search_for(kw):
+                page.add_redact_annot(rect, fill=(0, 0, 0))
+                hits += 1
+                found = True
+        if found:
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+    return hits
+
+
 def _add_page_numbers(doc, spec):
     """spec: {format ('{n}', '{total}' placeholders), position, start, skip_first, size}"""
     fmt = spec.get("format") or "{n}"
@@ -528,6 +549,11 @@ class API:
             elif options.get("bookmarks") is not None:
                 new_doc.set_toc([])   # all bookmarks removed on purpose
 
+            # Before stamp / watermark / page numbers, so those are not blacked out
+            redact = options.get("redact")
+            if redact and _clean_keywords(redact.get("keywords")):
+                _redact_text(new_doc, redact["keywords"])
+
             stamp_cache = {}
             for pg, p in zip(new_doc, pages):
                 if p.get("stamp"):
@@ -701,6 +727,23 @@ class API:
             return res if res.get("ok") else None
         return None
 
+    def count_redactions(self, pages, keywords):
+        """Number of matches the keywords have in the pages as they will be saved."""
+        try:
+            keywords = _clean_keywords(keywords)
+            if not keywords:
+                return {"ok": False, "msg": "請輸入要塗黑的關鍵字！"}
+            with self._lock:
+                doc = self._build_doc(pages, {})
+            try:
+                hits = sum(len(pg.search_for(kw)) for pg in doc for kw in keywords)
+                has_text = any(pg.get_text().strip() for pg in doc)
+            finally:
+                doc.close()
+            return {"ok": True, "hits": hits, "has_text": has_text}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def get_preview(self, path, index):
         try:
             with self._lock:
@@ -723,6 +766,7 @@ class API:
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
                    page_numbers: {format, position, start, skip_first, size},
+                   redact: {keywords: [str]} (permanently removes the matching text),
                    bookmarks: [{level, title, bid}] (omit = keep source bookmarks),
                    meta_mode: "keep" | "clear" | "custom", title, author}
         """
