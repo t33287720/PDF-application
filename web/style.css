@@ -621,3 +621,20 @@ input[type="range"]:focus-visible {
   border: 1px solid var(--border, #ccc); line-height: 0; user-select: none; }
 .stamp-stage #stamp-page { max-width: 100%; max-height: 40vh; display: block; }
 .stamp-stage #stamp-overlay { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
+
+/* 最近開啟 */
+.recent-menu {
+  position: absolute; z-index: 50; margin-top: 4px; min-width: 240px; max-width: 360px;
+  background: var(--bg, #fff); color: inherit; border: 1px solid rgba(128,128,128,.4);
+  border-radius: 8px; padding: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+}
+.recent-item { display: flex; align-items: center; gap: 4px; }
+.recent-item.missing .recent-open { opacity: .5; }
+.recent-open, .recent-del, .recent-clear {
+  background: none; border: none; color: inherit; cursor: pointer; padding: 6px 8px;
+  border-radius: 6px; font: inherit; text-align: left;
+}
+.recent-open { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-open:hover:not(:disabled), .recent-del:hover, .recent-clear:hover { background: rgba(128,128,128,.2); }
+.recent-clear { width: 100%; margin-top: 4px; border-top: 1px solid rgba(128,128,128,.3); border-radius: 0 0 6px 6px; }
+.recent-empty { padding: 8px; opacity: .7; }

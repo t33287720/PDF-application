@@ -616,3 +616,29 @@ def test_count_redactions(api, tmp_path):
     assert res == {"ok": True, "hits": 4, "has_text": True}
     assert api.count_redactions(pages_of(src, 0), ["zzz"])["hits"] == 0
     assert not api.count_redactions(pages_of(src, 0), [" "])["ok"]
+
+
+# ── 最近開啟 ─────────────────────────────────────────────────────────────────
+
+def test_recent_files_dedupe_limit_and_missing(api, tmp_path):
+    paths = [make_pdf(tmp_path / f"r{i}.pdf", 1) for i in range(12)]
+    for p in paths:
+        assert api.open_pdf_for_editor(str(p))["ok"]
+    assert api.open_pdf_for_editor(str(paths[5]))["ok"]   # re-open → moves to front
+    recent = api.get_recent_files()
+    assert len(recent) == pdf_tools.RECENT_MAX
+    assert recent[0]["name"] == "r5.pdf"
+    assert [r["name"] for r in recent].count("r5.pdf") == 1
+    os.remove(paths[5])
+    assert api.get_recent_files()[0]["exists"] is False
+    api.remove_recent(str(paths[5]))
+    assert all(r["name"] != "r5.pdf" for r in api.get_recent_files())
+    api.clear_recent()
+    assert api.get_recent_files() == []
+
+
+def test_recent_files_corrupt_settings(api):
+    os.makedirs(os.path.dirname(pdf_tools._settings_path()), exist_ok=True)
+    with open(pdf_tools._settings_path(), "w") as f:
+        f.write("{not json")
+    assert api.get_recent_files() == []

@@ -223,6 +223,58 @@ async function openNewPdf() {
   await pick();
 }
 
+// ── Recent files ──────────────────────────────────────────────────────────────
+
+async function toggleRecent(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById('recent-menu');
+  if (menu.style.display !== 'none') { menu.style.display = 'none'; return; }
+  await renderRecent();
+  menu.style.display = 'block';
+}
+
+async function renderRecent() {
+  const menu = document.getElementById('recent-menu');
+  const items = (await pywebview.api.get_recent_files()) || [];
+  if (!items.length) {
+    menu.innerHTML = '<div class="recent-empty">尚無最近開啟的檔案</div>';
+    return;
+  }
+  menu.innerHTML = items.map((it, i) => `
+    <div class="recent-item${it.exists ? '' : ' missing'}" title="${escapeHtml(it.path)}">
+      <button class="recent-open" data-i="${i}" ${it.exists ? '' : 'disabled'}>${escapeHtml(it.name)}${it.exists ? '' : '（檔案不存在）'}</button>
+      <button class="recent-del" data-i="${i}" aria-label="從清單移除">✕</button>
+    </div>`).join('') + '<button class="recent-clear">清除紀錄</button>';
+  menu.querySelectorAll('.recent-open').forEach(b => b.onclick = () => {
+    menu.style.display = 'none';
+    openRecent(items[+b.dataset.i].path);
+  });
+  menu.querySelectorAll('.recent-del').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    await pywebview.api.remove_recent(items[+b.dataset.i].path);
+    renderRecent();
+  });
+  menu.querySelector('.recent-clear').onclick = async (e) => {
+    e.stopPropagation();
+    await pywebview.api.clear_recent();
+    renderRecent();
+  };
+}
+
+async function openRecent(path) {
+  const pick = () => loadFiles([path], false);
+  if (isDirty && editorPages.filter(p => !p.deleted).length > 0) {
+    showConfirm('有未儲存的變更，開啟新檔案將會遺失目前的修改，確定繼續嗎？', pick);
+    return;
+  }
+  await pick();
+}
+
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('recent-menu');
+  if (menu && !menu.contains(e.target)) menu.style.display = 'none';
+});
+
 async function appendPdf() {
   await loadFiles(await pywebview.api.browse_open(), true);
 }

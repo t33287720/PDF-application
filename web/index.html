@@ -24,6 +24,8 @@
     <!-- 左：檔案操作 -->
     <div class="toolbar-group">
       <button class="btn-primary" onclick="openNewPdf()" title="開啟 PDF 或圖片 (Ctrl+O)">開啟</button>
+      <button class="btn-tool" id="btn-recent" onclick="toggleRecent(event)" title="最近開啟的檔案" aria-label="最近開啟">最近開啟 ▾</button>
+      <div id="recent-menu" class="recent-menu" style="display:none"></div>
       <button class="btn-tool" id="btn-append" onclick="appendPdf()" title="在最後加入 PDF 或圖片" disabled>附加</button>
     </div>
 

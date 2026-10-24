@@ -11,6 +11,7 @@ import secrets
 import shutil
 import tempfile
 import threading
+import time
 import webview
 from webview.dom import DOMEventHandler
 import fitz  # PyMuPDF
@@ -69,6 +70,25 @@ def _save_settings(settings):
             json.dump(settings, f, ensure_ascii=False, indent=2)
     except OSError:
         pass   # settings are a convenience; never fail an action over them
+
+
+RECENT_MAX = 10
+
+
+def _recent_entries():
+    items = _load_settings().get("recent_files")
+    if not isinstance(items, list):
+        return []
+    return [e for e in items if isinstance(e, dict) and isinstance(e.get("path"), str)]
+
+
+def _add_recent(path):
+    path = os.path.abspath(path)
+    items = [e for e in _recent_entries() if e["path"] != path]
+    items.insert(0, {"path": path, "time": int(time.time())})
+    settings = _load_settings()
+    settings["recent_files"] = items[:RECENT_MAX]
+    _save_settings(settings)
 
 
 def _auto_name(directory, prefix):
@@ -472,6 +492,7 @@ class API:
             if not os.path.isfile(path):
                 return {"ok": False, "msg": "檔案不存在！"}
             name = os.path.basename(path)
+            opened = path
             with self._lock:
                 if _is_image(path):
                     path = self._image_to_pdf(path)
@@ -492,9 +513,24 @@ class API:
                            if 1 <= pno <= len(doc)]
                 finally:
                     doc.close()
+            _add_recent(opened)
             return {"ok": True, "sizes": sizes, "path": path, "name": name, "toc": toc}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
+
+    def get_recent_files(self):
+        return [{"path": e["path"], "name": os.path.basename(e["path"]),
+                 "exists": os.path.isfile(e["path"])} for e in _recent_entries()]
+
+    def remove_recent(self, path):
+        settings = _load_settings()
+        settings["recent_files"] = [e for e in _recent_entries() if e["path"] != path]
+        _save_settings(settings)
+
+    def clear_recent(self):
+        settings = _load_settings()
+        settings["recent_files"] = []
+        _save_settings(settings)
 
     def get_thumbnails(self, path, start, count):
         try:
