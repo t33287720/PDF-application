@@ -134,6 +134,7 @@ function askPassword(msg) {
 
 // [{srcFile, srcName, srcOrig, origIndex, size, aspect, b64, rotation, crop, selected, deleted, blank?}]
 // crop: null or [left, top, right, bottom] in pt, relative to the page before rotation
+// stamp: null or {path, b64, x, y, width, opacity} (x, y = centre, width: fractions of the displayed page)
 let editorPages = [];
 let dragSrcPage = null;
 let selectAnchor = null;  // last clicked page, start of a Shift+click range
@@ -152,7 +153,7 @@ const redoStack = [];
 
 function snapshot() {
   return {
-    pages: editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted, crop: p.crop })),
+    pages: editorPages.map(p => ({ page: p, rotation: p.rotation, deleted: p.deleted, crop: p.crop, stamp: p.stamp })),
     bookmarks: bookmarks.map(b => ({ ...b })),
     bookmarksEdited,
   };
@@ -163,6 +164,7 @@ function restoreSnapshot(snap) {
     s.page.rotation = s.rotation;
     s.page.deleted  = s.deleted;
     s.page.crop     = s.crop;
+    s.page.stamp    = s.stamp;
     syncAspect(s.page);
     return s.page;
   });
@@ -221,6 +223,58 @@ async function openNewPdf() {
   await pick();
 }
 
+// ── Recent files ──────────────────────────────────────────────────────────────
+
+async function toggleRecent(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById('recent-menu');
+  if (menu.style.display !== 'none') { menu.style.display = 'none'; return; }
+  await renderRecent();
+  menu.style.display = 'block';
+}
+
+async function renderRecent() {
+  const menu = document.getElementById('recent-menu');
+  const items = (await pywebview.api.get_recent_files()) || [];
+  if (!items.length) {
+    menu.innerHTML = '<div class="recent-empty">尚無最近開啟的檔案</div>';
+    return;
+  }
+  menu.innerHTML = items.map((it, i) => `
+    <div class="recent-item${it.exists ? '' : ' missing'}" title="${escapeHtml(it.path)}">
+      <button class="recent-open" data-i="${i}" ${it.exists ? '' : 'disabled'}>${escapeHtml(it.name)}${it.exists ? '' : '（檔案不存在）'}</button>
+      <button class="recent-del" data-i="${i}" aria-label="從清單移除">✕</button>
+    </div>`).join('') + '<button class="recent-clear">清除紀錄</button>';
+  menu.querySelectorAll('.recent-open').forEach(b => b.onclick = () => {
+    menu.style.display = 'none';
+    openRecent(items[+b.dataset.i].path);
+  });
+  menu.querySelectorAll('.recent-del').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    await pywebview.api.remove_recent(items[+b.dataset.i].path);
+    renderRecent();
+  });
+  menu.querySelector('.recent-clear').onclick = async (e) => {
+    e.stopPropagation();
+    await pywebview.api.clear_recent();
+    renderRecent();
+  };
+}
+
+async function openRecent(path) {
+  const pick = () => loadFiles([path], false);
+  if (isDirty && editorPages.filter(p => !p.deleted).length > 0) {
+    showConfirm('有未儲存的變更，開啟新檔案將會遺失目前的修改，確定繼續嗎？', pick);
+    return;
+  }
+  await pick();
+}
+
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('recent-menu');
+  if (menu && !menu.contains(e.target)) menu.style.display = 'none';
+});
+
 async function appendPdf() {
   await loadFiles(await pywebview.api.browse_open(), true);
 }
@@ -263,6 +317,7 @@ async function loadPdf(path, append) {
     aspect:    w / h,
     rotation:  0,
     crop:      null,
+    stamp:     null,
     selected:  false,
     deleted:   false,
     id:        nextPageId++,
@@ -311,12 +366,15 @@ async function loadThumbnails(path, pages) {
     if (!res || !res.ok) { setStatus(`縮圖載入失敗：${res ? res.msg : '未知錯誤'}`, false); return; }
     res.thumbs.forEach((b64, i) => {
       const page = pages[start + i];
-      page.b64 = b64;
-      if (page.el) {
-        if (page.crop) refreshCropThumb(page);
-        else page.el.querySelector('img').src = b64;
-        page.el.classList.remove('loading');
-      }
+      // Copies made (duplicatePages) while this thumbnail was still loading share it
+      [page, ...editorPages.filter(q => q.dupOf === page)].forEach(q => {
+        q.b64 = b64;
+        if (q.el) {
+          if (q.crop) refreshCropThumb(q);
+          else q.el.querySelector('img').src = b64;
+          q.el.classList.remove('loading');
+        }
+      });
     });
   }
 }
@@ -450,6 +508,11 @@ function getOutputOptions() {
       skip_first: document.getElementById('opt-pn-skip').checked,
     };
   }
+  if (document.getElementById('opt-redact').checked) {
+    const keywords = redactKeywords();
+    if (!keywords.length) { showToast('請輸入要塗黑的關鍵字！', false); return null; }
+    opts.redact = { keywords };
+  }
   const metaMode = document.getElementById('opt-meta').value;
   if (metaMode !== 'keep') {
     opts.meta_mode = metaMode;
@@ -461,9 +524,27 @@ function getOutputOptions() {
   return opts;
 }
 
+function redactKeywords() {
+  return document.getElementById('opt-redact-words').value
+    .split(/\r?\n/).map(k => k.trim()).filter(Boolean);
+}
+
+async function previewRedactions() {
+  const result = document.getElementById('opt-redact-result');
+  const keywords = redactKeywords();
+  const active = editorPages.filter(p => !p.deleted);
+  if (!keywords.length) { result.textContent = '請先輸入關鍵字'; return; }
+  if (!active.length) { result.textContent = '尚未開啟任何頁面'; return; }
+  result.textContent = '計算中…';
+  const res = await pywebview.api.count_redactions(buildPageList(active), keywords);
+  result.textContent = !res.ok ? res.msg
+    : !res.has_text ? '找不到文字層（可能是掃描檔，需先 OCR）'
+    : `共命中 ${res.hits} 處`;
+}
+
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
-  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.meta_mode].filter(Boolean).length;
+  const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.redact, opts.meta_mode].filter(Boolean).length;
   const badge = document.getElementById('options-badge');
   badge.textContent = count;
   badge.classList.toggle('show', count > 0);
@@ -588,8 +669,8 @@ function updateThumb(page, displayIdx, srcName) {
   const shown = page.crop ? page.cropSrc : page.b64;
   if (shown && img.getAttribute('src') !== shown) img.src = shown;
   const badge = div.querySelector('.rotation-badge');
-  badge.textContent = page.rotation ? `↻ ${page.rotation}°` : '';
-  badge.style.display = page.rotation ? '' : 'none';
+  badge.textContent = [page.rotation ? `↻ ${page.rotation}°` : '', page.stamp ? '🖋' : ''].filter(Boolean).join(' ');
+  badge.style.display = badge.textContent ? '' : 'none';
   img.alt = `第 ${displayIdx + 1} 頁`;
   div.querySelector('.thumb-num').textContent = displayIdx + 1;
   const src = div.querySelector('.thumb-src');
@@ -702,11 +783,57 @@ function insertBlankPage() {
   if (ref && ref.rotation % 180) [w, h] = [h, w];
   const page = {
     blank: true, srcFile: null, origIndex: null, size: [w, h], aspect: w / h,
-    b64: null, rotation: 0, crop: null, selected: false, deleted: false, id: nextPageId++,
+    b64: null, rotation: 0, crop: null, stamp: null, selected: false, deleted: false, id: nextPageId++,
   };
   applyEdit(() => {
     editorPages.splice(ref ? editorPages.indexOf(ref) + 1 : editorPages.length, 0, page);
   });
+}
+
+// Puts a copy of each selected page right after it (rotation and crop are kept;
+// a bookmark stays on the original page)
+function duplicatePages() {
+  const targets = editorPages.filter(p => p.selected && !p.deleted);
+  if (!targets.length) { showToast('請先選取要複製的頁面！', false); return; }
+  applyEdit(() => {
+    targets.forEach(p => {
+      const copy = { ...p, id: nextPageId++, selected: false, el: null, dupOf: p.dupOf || p };
+      editorPages.splice(editorPages.indexOf(p) + 1, 0, copy);
+    });
+  });
+  showToast(`已複製 ${targets.length} 頁`, true);
+}
+
+// Rewrites the order of `targets` (live pages) in place, leaving deleted pages and
+// every other page where they are
+function reorderPages(targets, newOrder) {
+  const slots = targets.map(p => editorPages.indexOf(p));
+  newOrder.forEach((p, i) => { editorPages[slots[i]] = p; });
+}
+
+// Reverses the selected pages (or all pages when nothing is selected)
+function reversePages() {
+  const live = editorPages.filter(p => !p.deleted);
+  const selected = live.filter(p => p.selected);
+  const targets = selected.length ? selected : live;
+  if (targets.length < 2) { showToast('至少需要兩頁才能反轉順序！', false); return; }
+  applyEdit(() => reorderPages(targets, [...targets].reverse()));
+  showToast(selected.length ? '已反轉選取頁的順序' : '已反轉全部頁面的順序', true);
+}
+
+// Double-sided scan with a single-sided feeder: first half = fronts, second half =
+// backs in reverse order. Result: front 1, back 1, front 2, back 2 ...
+function interleaveDuplex() {
+  const live = editorPages.filter(p => !p.deleted);
+  if (live.length < 2 || live.length % 2) {
+    showToast(`目前有 ${live.length} 頁，雙面掃描需為偶數頁（前半正面、後半反面）。請先用刪除／空白頁補齊`, false);
+    return;
+  }
+  const half = live.length / 2;
+  const fronts = live.slice(0, half);
+  const backs  = live.slice(half).reverse();
+  applyEdit(() => reorderPages(live, fronts.flatMap((f, i) => [f, backs[i]])));
+  showToast('已交錯合併正反面', true);
 }
 
 function editorRotateSelected() {
@@ -842,6 +969,138 @@ function applyCrop() {
     : `已裁切 ${plan.length - skipped} 頁` + (skipped ? `（${skipped} 頁因超出頁面大小而略過）` : '') + '（Ctrl+Z 可復原）', true);
 }
 
+// ── Image stamp ───────────────────────────────────────────────────────────────
+
+setupModal('stamp-modal', closeStamp);
+
+// Draft of the stamp being placed: {path, b64, x, y}
+let stampDraft = null;
+
+function stampTargets() {
+  const all = document.querySelector('input[name="stamp-target"]:checked').value === 'all';
+  return editorPages.filter(p => !p.deleted && (all || p.selected));
+}
+
+// Data URL of the page as it will look: cropped, then rotated
+async function displayedPageImage(page) {
+  let src = page.b64 || blankImage(page);
+  if (page.crop && page.b64) src = await cropImage(src, page.size, page.crop) || src;
+  if (!page.rotation) return src;
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const quarter = page.rotation % 180 !== 0;
+      const canvas = document.createElement('canvas');
+      canvas.width  = quarter ? img.naturalHeight : img.naturalWidth;
+      canvas.height = quarter ? img.naturalWidth : img.naturalHeight;
+      const g = canvas.getContext('2d');
+      g.translate(canvas.width / 2, canvas.height / 2);
+      g.rotate(page.rotation * Math.PI / 180);
+      g.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+function updateStampOverlay() {
+  const width = Number(document.getElementById('stamp-width').value);
+  const opacity = Number(document.getElementById('stamp-opacity').value);
+  document.getElementById('stamp-width-val').textContent = `${width}%`;
+  document.getElementById('stamp-opacity-val').textContent = `${Math.round(opacity * 100)}%`;
+  const overlay = document.getElementById('stamp-overlay');
+  overlay.hidden = !stampDraft || !stampDraft.b64;
+  if (overlay.hidden) return;
+  overlay.src = stampDraft.b64;
+  overlay.style.left = `${stampDraft.x * 100}%`;
+  overlay.style.top = `${stampDraft.y * 100}%`;
+  overlay.style.width = `${width}%`;
+  overlay.style.opacity = opacity;
+}
+
+function updateStampSummary() {
+  const n = stampTargets().length;
+  document.getElementById('stamp-summary').textContent = n
+    ? `將套用到 ${n} 頁（會取代這些頁原有的蓋章）` : '沒有可套用的頁面，請先選取頁面';
+}
+
+async function refreshStampPage() {
+  updateStampSummary();
+  const first = stampTargets()[0];
+  const img = document.getElementById('stamp-page');
+  img.removeAttribute('src');
+  if (first) img.src = await displayedPageImage(first);
+}
+
+function setStampImage(res) {
+  stampDraft = { ...(stampDraft || { x: 0.7, y: 0.85 }), path: res.path, b64: res.b64 };
+  document.getElementById('stamp-file').textContent = res.path.split(/[\\/]/).pop();
+  updateStampOverlay();
+}
+
+async function pickStampImage() {
+  const res = await pywebview.api.browse_image();
+  if (!res) return;
+  if (!res.ok) { showToast(res.msg, false); return; }
+  setStampImage(res);
+}
+
+async function openStamp() {
+  const hasSelection = editorPages.some(p => p.selected && !p.deleted);
+  document.querySelector(`input[name="stamp-target"][value="${hasSelection ? 'selected' : 'all'}"]`).checked = true;
+  const existing = stampTargets()[0] && stampTargets()[0].stamp;
+  stampDraft = existing ? { path: existing.path, b64: existing.b64, x: existing.x, y: existing.y } : null;
+  if (existing) {
+    document.getElementById('stamp-width').value = Math.round(existing.width * 100);
+    document.getElementById('stamp-opacity').value = existing.opacity;
+    document.getElementById('stamp-file').textContent = existing.path.split(/[\\/]/).pop();
+  } else {
+    const last = await pywebview.api.get_last_stamp_image();   // reuse the previous image
+    if (last) setStampImage(last);
+    else document.getElementById('stamp-file').textContent = '尚未選擇（建議用透明背景 PNG）';
+  }
+  updateStampOverlay();
+  document.getElementById('stamp-modal').classList.add('show');
+  refreshStampPage();
+}
+
+function closeStamp() {
+  document.getElementById('stamp-modal').classList.remove('show');
+}
+
+document.querySelectorAll('input[name="stamp-target"]').forEach(el => el.addEventListener('change', refreshStampPage));
+['stamp-width', 'stamp-opacity'].forEach(id => document.getElementById(id).addEventListener('input', updateStampOverlay));
+document.getElementById('stamp-stage').addEventListener('click', e => {
+  if (!stampDraft) { showToast('請先選擇印章圖片', false); return; }
+  const box = document.getElementById('stamp-page').getBoundingClientRect();
+  stampDraft.x = Math.min(Math.max((e.clientX - box.left) / box.width, 0), 1);
+  stampDraft.y = Math.min(Math.max((e.clientY - box.top) / box.height, 0), 1);
+  updateStampOverlay();
+});
+
+function applyStamp() {
+  const targets = stampTargets();
+  if (!targets.length) { showToast('請先選取要蓋章的頁面！', false); return; }
+  if (!stampDraft || !stampDraft.path) { showToast('請先選擇印章圖片', false); return; }
+  const stamp = {
+    path: stampDraft.path, b64: stampDraft.b64, x: stampDraft.x, y: stampDraft.y,
+    width: Number(document.getElementById('stamp-width').value) / 100,
+    opacity: Number(document.getElementById('stamp-opacity').value),
+  };
+  closeStamp();
+  applyEdit(() => targets.forEach(p => { p.stamp = { ...stamp }; }));
+  showToast(`已在 ${targets.length} 頁蓋章（Ctrl+Z 可復原）`, true);
+}
+
+function clearStamp() {
+  const targets = stampTargets().filter(p => p.stamp);
+  closeStamp();
+  if (!targets.length) { showToast('套用頁上沒有蓋章', false); return; }
+  applyEdit(() => targets.forEach(p => { p.stamp = null; }));
+  showToast(`已移除 ${targets.length} 頁的蓋章`, true);
+}
+
 // ── Page preview ──────────────────────────────────────────────────────────────
 
 let previewPage = null;
@@ -929,16 +1188,22 @@ document.addEventListener('keydown', e => {
     renderEditorGrid();
   }
   else if (!ctrl && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); editorDeleteSelected(); }
+  else if (ctrl && key === 'd') { e.preventDefault(); duplicatePages(); }
   else if (!ctrl && key === 'r')      editorRotateSelected();
   else if (e.key === 'Escape')        editorClearSelection();
 });
 
 // ── Save / Extract ────────────────────────────────────────────────────────────
 
+function stampPayload(p) {
+  const s = p.stamp;
+  return s && { path: s.path, x: s.x, y: s.y, width: s.width, opacity: s.opacity };
+}
+
 function buildPageList(pagesArr) {
   return pagesArr.map(p => p.blank
-    ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation, bid: p.id }
-    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation, crop: p.crop, bid: p.id });
+    ? { blank: true, width: p.size[0], height: p.size[1], rotation: p.rotation, bid: p.id, stamp: stampPayload(p) }
+    : { src: p.srcFile, orig_idx: p.origIndex, rotation: p.rotation, crop: p.crop, bid: p.id, stamp: stampPayload(p) });
 }
 
 // Output options plus the edited bookmark list (omitted until edited)

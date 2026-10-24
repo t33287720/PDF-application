@@ -11,6 +11,7 @@ import secrets
 import shutil
 import tempfile
 import threading
+import time
 import webview
 from webview.dom import DOMEventHandler
 import fitz  # PyMuPDF
@@ -69,6 +70,25 @@ def _save_settings(settings):
             json.dump(settings, f, ensure_ascii=False, indent=2)
     except OSError:
         pass   # settings are a convenience; never fail an action over them
+
+
+RECENT_MAX = 10
+
+
+def _recent_entries():
+    items = _load_settings().get("recent_files")
+    if not isinstance(items, list):
+        return []
+    return [e for e in items if isinstance(e, dict) and isinstance(e.get("path"), str)]
+
+
+def _add_recent(path):
+    path = os.path.abspath(path)
+    items = [e for e in _recent_entries() if e["path"] != path]
+    items.insert(0, {"path": path, "time": int(time.time())})
+    settings = _load_settings()
+    settings["recent_files"] = items[:RECENT_MAX]
+    _save_settings(settings)
 
 
 def _auto_name(directory, prefix):
@@ -247,6 +267,60 @@ def _apply_crop(page, margins):
     page.set_cropbox(fitz.Rect(u0 + box.x0, v0 + box.y0, u1 + box.x0, v1 + box.y0))
 
 
+STAMP_MAX_BYTES = 20 * 1024 * 1024   # refuse absurdly large stamp images
+
+
+def _load_stamp_pixmap(path, opacity):
+    """RGB(A) pixmap of the stamp image with its alpha channel scaled by `opacity`."""
+    if os.path.getsize(path) > STAMP_MAX_BYTES:
+        raise ValueError("簽名／印章圖片過大（上限 20 MB）")
+    pix = fitz.Pixmap(path)
+    if pix.colorspace is None or pix.colorspace.n != 3:
+        pix = fitz.Pixmap(fitz.csRGB, pix)   # gray / CMYK -> RGB
+    if not pix.alpha:
+        pix = fitz.Pixmap(pix, 1)            # add an opaque alpha channel
+    if opacity < 1:
+        table = bytes(int(i * opacity) for i in range(256))
+        pix.set_alpha(bytes(pix.samples_mv[pix.n - 1::pix.n]).translate(table))
+    return pix
+
+
+def _add_stamp(page, stamp, cache):
+    """stamp: {path, x, y, width, opacity}. x / y are the stamp's centre and width
+    its width, all as fractions of the page as displayed (after crop and rotation)."""
+    key = (stamp["path"], float(stamp.get("opacity", 1.0)))
+    if key not in cache:
+        cache[key] = _load_stamp_pixmap(*key)
+    pix = cache[key]
+    view = page.rect
+    w = min(max(float(stamp["width"]), 0.02), 1.0) * view.width
+    h = w * pix.height / pix.width
+    cx, cy = float(stamp["x"]) * view.width, float(stamp["y"]) * view.height
+    rect = fitz.Rect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2) * page.derotation_matrix
+    page.insert_image(rect.normalize(), pixmap=pix, rotate=page.rotation, overlay=True)
+
+
+def _clean_keywords(keywords):
+    return [k.strip() for k in (keywords or []) if isinstance(k, str) and k.strip()]
+
+
+def _redact_text(doc, keywords):
+    """Permanently remove every occurrence of the keywords (text layer only) and
+    paint a black box over it. Returns the number of hits."""
+    keywords = _clean_keywords(keywords)
+    hits = 0
+    for page in doc:
+        found = False
+        for kw in keywords:
+            for rect in page.search_for(kw):
+                page.add_redact_annot(rect, fill=(0, 0, 0))
+                hits += 1
+                found = True
+        if found:
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+    return hits
+
+
 def _add_page_numbers(doc, spec):
     """spec: {format ('{n}', '{total}' placeholders), position, start, skip_first, size}"""
     fmt = spec.get("format") or "{n}"
@@ -418,6 +492,7 @@ class API:
             if not os.path.isfile(path):
                 return {"ok": False, "msg": "檔案不存在！"}
             name = os.path.basename(path)
+            opened = path
             with self._lock:
                 if _is_image(path):
                     path = self._image_to_pdf(path)
@@ -438,9 +513,24 @@ class API:
                            if 1 <= pno <= len(doc)]
                 finally:
                     doc.close()
+            _add_recent(opened)
             return {"ok": True, "sizes": sizes, "path": path, "name": name, "toc": toc}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
+
+    def get_recent_files(self):
+        return [{"path": e["path"], "name": os.path.basename(e["path"]),
+                 "exists": os.path.isfile(e["path"])} for e in _recent_entries()]
+
+    def remove_recent(self, path):
+        settings = _load_settings()
+        settings["recent_files"] = [e for e in _recent_entries() if e["path"] != path]
+        _save_settings(settings)
+
+    def clear_recent(self):
+        settings = _load_settings()
+        settings["recent_files"] = []
+        _save_settings(settings)
 
     def get_thumbnails(self, path, start, count):
         try:
@@ -494,6 +584,16 @@ class API:
                 new_doc.set_toc(toc)
             elif options.get("bookmarks") is not None:
                 new_doc.set_toc([])   # all bookmarks removed on purpose
+
+            # Before stamp / watermark / page numbers, so those are not blacked out
+            redact = options.get("redact")
+            if redact and _clean_keywords(redact.get("keywords")):
+                _redact_text(new_doc, redact["keywords"])
+
+            stamp_cache = {}
+            for pg, p in zip(new_doc, pages):
+                if p.get("stamp"):
+                    _add_stamp(pg, p["stamp"], stamp_cache)
 
             watermark = options.get("watermark")
             if watermark and watermark.get("text"):
@@ -629,6 +729,57 @@ class API:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
+    def browse_image(self):
+        """Pick a stamp image; returns {path, b64} (b64 for the preview) or None."""
+        result = webview.windows[0].create_file_dialog(
+            webview.FileDialog.OPEN,
+            directory=self._last_dir(),
+            file_types=("圖片 (*.png;*.jpg;*.jpeg;*.bmp;*.gif)",),
+        )
+        if not result:
+            return None
+        return self.load_stamp_image(result[0])
+
+    def load_stamp_image(self, path):
+        """Validates the image and returns {ok, path, b64}; remembers it for next time."""
+        try:
+            pix = _load_stamp_pixmap(path, 1.0)
+            if max(pix.width, pix.height) > 600:
+                zoom = 600 / max(pix.width, pix.height)
+                pix = fitz.Pixmap(pix, int(pix.width * zoom) or 1, int(pix.height * zoom) or 1, None)
+            b64 = base64.b64encode(pix.tobytes("png")).decode()
+            self._remember_dir(path)
+            if self._settings.get("stamp_image") != path:
+                self._settings["stamp_image"] = path
+                _save_settings(self._settings)
+            return {"ok": True, "path": path, "b64": f"data:image/png;base64,{b64}"}
+        except Exception as e:
+            return {"ok": False, "msg": f"無法讀取圖片：{e}"}
+
+    def get_last_stamp_image(self):
+        path = self._settings.get("stamp_image")
+        if path and os.path.isfile(path):
+            res = self.load_stamp_image(path)
+            return res if res.get("ok") else None
+        return None
+
+    def count_redactions(self, pages, keywords):
+        """Number of matches the keywords have in the pages as they will be saved."""
+        try:
+            keywords = _clean_keywords(keywords)
+            if not keywords:
+                return {"ok": False, "msg": "請輸入要塗黑的關鍵字！"}
+            with self._lock:
+                doc = self._build_doc(pages, {})
+            try:
+                hits = sum(len(pg.search_for(kw)) for pg in doc for kw in keywords)
+                has_text = any(pg.get_text().strip() for pg in doc)
+            finally:
+                doc.close()
+            return {"ok": True, "hits": hits, "has_text": has_text}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def get_preview(self, path, index):
         try:
             with self._lock:
@@ -646,11 +797,12 @@ class API:
 
     def save_edited_pdf(self, pages, out, options=None):
         """
-        pages   : list of {src, orig_idx, rotation, crop?: [l, t, r, b] pt} or {blank: true, width, height, rotation}
+        pages   : list of {src, orig_idx, rotation, crop?: [l, t, r, b] pt, stamp?: {path, x, y, width, opacity}} or {blank: true, width, height, rotation}
         out     : output path (empty = auto)
         options : {password, compress: "none" | "medium" | "high",
                    watermark: {text, size, opacity, diagonal},
                    page_numbers: {format, position, start, skip_first, size},
+                   redact: {keywords: [str]} (permanently removes the matching text),
                    bookmarks: [{level, title, bid}] (omit = keep source bookmarks),
                    meta_mode: "keep" | "clear" | "custom", title, author}
         """
