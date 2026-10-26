@@ -24,6 +24,8 @@
     <!-- 左：檔案操作 -->
     <div class="toolbar-group">
       <button class="btn-primary" onclick="openNewPdf()" title="開啟 PDF 或圖片 (Ctrl+O)">開啟</button>
+      <button class="btn-tool" id="btn-recent" onclick="toggleRecent(event)" title="最近開啟的檔案" aria-label="最近開啟">最近開啟 ▾</button>
+      <div id="recent-menu" class="recent-menu" style="display:none"></div>
       <button class="btn-tool" id="btn-append" onclick="appendPdf()" title="在最後加入 PDF 或圖片" disabled>附加</button>
     </div>
 
@@ -35,9 +37,13 @@
       <button class="btn-tool" id="btn-redo" onclick="redo()" title="重做 (Ctrl+Y)" aria-label="重做" disabled>↷</button>
       <button class="btn-tool" onclick="editorSelectAll()" title="Ctrl+A；Shift+點擊可選取範圍">全選</button>
       <button class="btn-tool" onclick="editorRotateSelected()" title="旋轉選取頁 (R)">↻ 旋轉</button>
+      <button class="btn-tool" onclick="reversePages()" title="反轉選取頁（未選取則全部頁）的順序">⇅ 反轉順序</button>
+      <button class="btn-tool" onclick="interleaveDuplex()" title="雙面掃描：前半為正面、後半為反面（倒序），交錯合併成正確頁序">交錯合併</button>
       <button class="btn-tool" onclick="openCrop()" title="裁掉選取頁（或全部頁）的邊緣">✂ 裁切</button>
+      <button class="btn-tool" onclick="openStamp()" title="在選取頁（或全部頁）蓋上簽名或印章圖片">🖋 蓋章</button>
       <button class="btn-tool danger" onclick="editorDeleteSelected()" title="刪除選取頁 (Delete)">✕ 刪除</button>
       <button class="btn-tool" onclick="openBookmarks()" title="新增、改名、刪除書籤（目錄）">🔖 書籤</button>
+      <button class="btn-tool" onclick="duplicatePages()" title="複製選取頁，副本緊接在原頁之後 (Ctrl+D)">⧉ 複製頁面</button>
       <button class="btn-tool" onclick="insertBlankPage()" title="插入到選取頁之後（未選取則加在最後）">＋ 空白頁</button>
       <button class="btn-tool" onclick="detectBlankPages()" title="自動選取沒有文字、圖片的空白頁，再按「刪除」移除">偵測空白頁</button>
       <div class="dropdown" id="export-menu">
@@ -161,6 +167,16 @@
       </section>
 
       <section class="opt-section">
+        <label class="opt-toggle"><input type="checkbox" id="opt-redact"> 塗黑遮蓋（永久刪除敏感文字）</label>
+        <div class="opt-body" data-for="opt-redact">
+          <textarea id="opt-redact-words" class="opt-input opt-wide" rows="3" placeholder="每行一個關鍵字，例如身分證字號、電話"></textarea>
+          <button class="btn-tool" type="button" onclick="previewRedactions()">預覽命中數</button>
+          <span class="opt-note" id="opt-redact-result"></span>
+          <span class="opt-note">輸出的檔案會連底層文字一併移除，無法還原（原檔不受影響）。只處理文字層，純圖片掃描檔需先 OCR。</span>
+        </div>
+      </section>
+
+      <section class="opt-section">
         <label class="opt-row">壓縮圖片
           <select id="opt-compress" class="opt-select">
             <option value="none">不壓縮</option>
@@ -168,6 +184,8 @@
             <option value="high">強力（96 DPI）</option>
           </select>
         </label>
+        <button class="btn-tool" type="button" onclick="previewSize()">預估大小</button>
+        <span class="opt-note" id="opt-size-result"></span>
       </section>
 
       <section class="opt-section">
@@ -247,6 +265,37 @@
       <div class="modal-btns">
         <button class="btn-tool" onclick="closeCrop()">取消</button>
         <button class="btn-primary" onclick="applyCrop()">套用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image stamp / signature -->
+  <div id="stamp-modal" class="modal-overlay">
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="stamp-modal-title">
+      <h3 id="stamp-modal-title">蓋簽名／印章</h3>
+      <p class="opt-hint">蓋章會直接烙印在頁面上（儲存後無法取下，儲存前可用 Ctrl+Z 復原）；這不是具法律效力的電子簽章（沒有憑證簽署）。圖片僅在本機處理。</p>
+      <section class="opt-section">
+        <button class="btn-tool" id="stamp-pick" onclick="pickStampImage()">選擇圖片…</button>
+        <span class="split-summary" id="stamp-file">尚未選擇（建議用透明背景 PNG）</span>
+      </section>
+      <section class="opt-section">
+        <label class="opt-toggle">大小 <input type="range" id="stamp-width" min="5" max="80" step="1" value="25"> <span class="opt-num-label" id="stamp-width-val"></span></label>
+        <label class="opt-toggle">透明度 <input type="range" id="stamp-opacity" min="0.2" max="1" step="0.05" value="1"> <span class="opt-num-label" id="stamp-opacity-val"></span></label>
+      </section>
+      <section class="opt-section">
+        <label class="opt-toggle"><input type="radio" name="stamp-target" value="selected" checked> 選取的頁面</label>
+        <label class="opt-toggle"><input type="radio" name="stamp-target" value="all"> 全部頁面</label>
+      </section>
+      <p class="opt-hint">在下方預覽上點一下，決定印章的位置（以第一個套用頁為準，其他頁以相同的相對位置蓋上）。</p>
+      <div class="stamp-stage" id="stamp-stage">
+        <img id="stamp-page" alt="頁面預覽">
+        <img id="stamp-overlay" alt="印章位置" hidden>
+      </div>
+      <p class="split-summary" id="stamp-summary"></p>
+      <div class="modal-btns">
+        <button class="btn-tool" onclick="clearStamp()" title="移除套用頁上的蓋章">移除蓋章</button>
+        <button class="btn-tool" onclick="closeStamp()">取消</button>
+        <button class="btn-primary" onclick="applyStamp()">套用</button>
       </div>
     </div>
   </div>

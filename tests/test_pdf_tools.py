@@ -144,6 +144,17 @@ def test_save_remaps_bookmarks(api, tmp_path):
     doc.close()
 
 
+def test_save_duplicate_pages_keeps_first_bookmark(api, tmp_path):
+    src = make_pdf(tmp_path / "dup.pdf", 3, toc=[[1, "Two", 2]])
+    out = str(tmp_path / "out.pdf")
+    api.save_edited_pdf(pages_of(src, 0, 1, 1, 2), out)
+    doc = fitz.open(out)
+    assert len(doc) == 4
+    assert [doc[i].get_text().strip() for i in range(4)] == ["Page 1", "Page 2", "Page 2", "Page 3"]
+    assert doc.get_toc() == [[1, "Two", 2]]
+    doc.close()
+
+
 def test_compress_downsamples_images(api, tmp_path):
     # a noisy (poorly compressible) 1500px image shown at ~3 inches -> ~500 DPI
     doc = fitz.open()
@@ -493,3 +504,157 @@ def test_crop_respects_existing_cropbox(api, tmp_path):
     res = fitz.open(out)
     assert (round(res[0].rect.width), round(res[0].rect.height)) == (460, 640)
     res.close()
+
+
+# ── image stamp ──────────────────────────────────────────────────────────────
+
+def make_stamp(path, size=(200, 100), color=(255, 0, 0), alpha=False):
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, *size), alpha)
+    pix.set_rect(pix.irect, color + ((255,) if alpha else ()))
+    pix.save(str(path))
+    return str(path)
+
+
+def pixel_at(path, fx, fy):
+    doc = fitz.open(path)
+    pix = doc[0].get_pixmap(alpha=False)
+    doc.close()
+    return pix.pixel(int(fx * pix.width), int(fy * pix.height))
+
+
+@pytest.mark.parametrize("src_rot", [0, 90, 180, 270])
+@pytest.mark.parametrize("edit_rot", [0, 90])
+def test_stamp_lands_at_displayed_position(api, tmp_path, src_rot, edit_rot):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    doc = fitz.open(src)
+    doc[0].set_rotation(src_rot)
+    doc.saveIncr()
+    doc.close()
+    stamp = make_stamp(tmp_path / "s.png")
+    # Centre at (0.75, 0.25) of the displayed page, 40% of its width, wide:tall = 2:1
+    page = {"src": src, "orig_idx": 0, "rotation": edit_rot,
+            "stamp": {"path": stamp, "x": 0.75, "y": 0.25, "width": 0.4, "opacity": 1}}
+    out = str(tmp_path / "out.pdf")
+    assert api.save_edited_pdf([page], out)["ok"]
+    assert pixel_at(out, 0.75, 0.25) == (255, 0, 0)
+    assert pixel_at(out, 0.25, 0.75) == (255, 255, 255)
+    # Wide, not tall: 2:1 as displayed, so just inside the width edge is red, just above is not
+    assert pixel_at(out, 0.75 + 0.18, 0.25) == (255, 0, 0)
+    doc = fitz.open(out)
+    ratio = doc[0].rect.height / doc[0].rect.width
+    doc.close()
+    assert pixel_at(out, 0.75, 0.25 - 0.1 / ratio - 0.03) == (255, 255, 255)
+
+
+def test_stamp_opacity_blends_with_page(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    stamp = make_stamp(tmp_path / "s.png", alpha=True)
+    page = {"src": src, "orig_idx": 0, "rotation": 0,
+            "stamp": {"path": stamp, "x": 0.5, "y": 0.5, "width": 0.5, "opacity": 0.5}}
+    out = str(tmp_path / "out.pdf")
+    assert api.save_edited_pdf([page], out)["ok"]
+    r, g, b = pixel_at(out, 0.5, 0.52)
+    assert r > 240 and 100 < g < 160 and 100 < b < 160
+
+
+def test_stamp_applies_only_to_flagged_pages_and_blank_pages(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 2)
+    stamp = make_stamp(tmp_path / "s.png")
+    spec = {"path": stamp, "x": 0.5, "y": 0.5, "width": 0.3, "opacity": 1}
+    pages = [dict(blank(), stamp=spec)] + pages_of(src, 0)
+    out = str(tmp_path / "out.pdf")
+    assert api.save_edited_pdf(pages, out)["ok"]
+    doc = fitz.open(out)
+    assert len(doc[0].get_images()) == 1
+    assert len(doc[1].get_images()) == 0
+    doc.close()
+
+
+def test_stamp_with_unreadable_image_fails_cleanly(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 1)
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not an image")
+    page = {"src": src, "orig_idx": 0, "rotation": 0,
+            "stamp": {"path": str(bad), "x": 0.5, "y": 0.5, "width": 0.3, "opacity": 1}}
+    assert not api.save_edited_pdf([page], str(tmp_path / "out.pdf"))["ok"]
+
+
+def test_load_stamp_image_returns_preview_and_remembers_path(api, tmp_path):
+    stamp = make_stamp(tmp_path / "s.png", size=(900, 300))
+    res = api.load_stamp_image(stamp)
+    assert res["ok"] and res["b64"].startswith("data:image/png;base64,")
+    assert api.get_last_stamp_image()["path"] == stamp
+    assert not api.load_stamp_image(str(tmp_path / "missing.png"))["ok"]
+
+
+def test_redact_removes_text_layer(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    out = str(tmp_path / "r.pdf")
+    wm = {"text": "Page 1", "size": "medium", "opacity": 0.3, "diagonal": False}
+    assert api.save_edited_pdf(pages_of(src, 0, 1, 2), out,
+                               {"redact": {"keywords": ["Page 2", "  "]}})["ok"]
+    doc = fitz.open(out)
+    got = [pg.get_text() for pg in doc]
+    doc.close()
+    assert "Page 2" not in got[1] and "Page 1" in got[0] and "Page 3" in got[2]
+    # black box is drawn where the text was
+    doc = fitz.open(out)
+    assert min(_render_gray(doc[1]).samples) == 0
+    doc.close()
+    # redaction happens before the watermark, so a watermark with the same words survives
+    out2 = str(tmp_path / "r2.pdf")
+    assert api.save_edited_pdf(pages_of(src, 0), out2,
+                               {"redact": {"keywords": ["Page 1"]}, "watermark": wm})["ok"]
+    doc = fitz.open(out2)
+    assert "Page 1" in doc[0].get_text()
+    doc.close()
+
+
+def test_count_redactions(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 3)
+    res = api.count_redactions(pages_of(src, 0, 1, 2), ["Page", "Page 2"])
+    assert res == {"ok": True, "hits": 4, "has_text": True}
+    assert api.count_redactions(pages_of(src, 0), ["zzz"])["hits"] == 0
+    assert not api.count_redactions(pages_of(src, 0), [" "])["ok"]
+
+
+# ── 最近開啟 ─────────────────────────────────────────────────────────────────
+
+def test_recent_files_dedupe_limit_and_missing(api, tmp_path):
+    paths = [make_pdf(tmp_path / f"r{i}.pdf", 1) for i in range(12)]
+    for p in paths:
+        assert api.open_pdf_for_editor(str(p))["ok"]
+    assert api.open_pdf_for_editor(str(paths[5]))["ok"]   # re-open → moves to front
+    recent = api.get_recent_files()
+    assert len(recent) == pdf_tools.RECENT_MAX
+    assert recent[0]["name"] == "r5.pdf"
+    assert [r["name"] for r in recent].count("r5.pdf") == 1
+    os.remove(paths[5])
+    assert api.get_recent_files()[0]["exists"] is False
+    api.remove_recent(str(paths[5]))
+    assert all(r["name"] != "r5.pdf" for r in api.get_recent_files())
+    api.clear_recent()
+    assert api.get_recent_files() == []
+
+
+def test_recent_files_corrupt_settings(api):
+    os.makedirs(os.path.dirname(pdf_tools._settings_path()), exist_ok=True)
+    with open(pdf_tools._settings_path(), "w") as f:
+        f.write("{not json")
+    assert api.get_recent_files() == []
+
+
+# ── 預估輸出大小 ─────────────────────────────────────────────────────────────
+
+def test_estimate_output_size_matches_actual(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 2, image=True)
+    pages = pages_of(src, 0, 1)
+    res = api.estimate_output_size(pages, {"compress": "none"})
+    assert res["ok"] and res["original"] == os.path.getsize(src)
+    out = str(tmp_path / "o.pdf")
+    saved = api.save_edited_pdf(pages, out, {"compress": "none"})
+    assert saved["size"] == os.path.getsize(out) == res["current"]
+    assert saved["original"] == res["original"]
+    assert set(res["sizes"]) == {"none", "medium", "high"}
+    assert res["sizes"]["high"] <= res["sizes"]["none"]
+    assert not api.estimate_output_size([], {})["ok"]
