@@ -642,3 +642,19 @@ def test_recent_files_corrupt_settings(api):
     with open(pdf_tools._settings_path(), "w") as f:
         f.write("{not json")
     assert api.get_recent_files() == []
+
+
+# ── 預估輸出大小 ─────────────────────────────────────────────────────────────
+
+def test_estimate_output_size_matches_actual(api, tmp_path):
+    src = make_pdf(tmp_path / "a.pdf", 2, image=True)
+    pages = pages_of(src, 0, 1)
+    res = api.estimate_output_size(pages, {"compress": "none"})
+    assert res["ok"] and res["original"] == os.path.getsize(src)
+    out = str(tmp_path / "o.pdf")
+    saved = api.save_edited_pdf(pages, out, {"compress": "none"})
+    assert saved["size"] == os.path.getsize(out) == res["current"]
+    assert saved["original"] == res["original"]
+    assert set(res["sizes"]) == {"none", "medium", "high"}
+    assert res["sizes"]["high"] <= res["sizes"]["none"]
+    assert not api.estimate_output_size([], {})["ok"]

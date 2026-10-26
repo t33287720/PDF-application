@@ -542,6 +542,32 @@ async function previewRedactions() {
     : `共命中 ${res.hits} 處`;
 }
 
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// "5.2 MB → 1.8 MB（−65%）"
+function sizeChange(before, after) {
+  if (!before) return formatBytes(after);
+  const pct = Math.round((1 - after / before) * 100);
+  return `${formatBytes(before)} → ${formatBytes(after)}（${pct >= 0 ? '−' : '+'}${Math.abs(pct)}%）`;
+}
+
+async function previewSize() {
+  const result = document.getElementById('opt-size-result');
+  const options = getOutputOptions();
+  const active = editorPages.filter(p => !p.deleted);
+  if (!options) { result.textContent = '請先修正輸出選項'; return; }
+  if (!active.length) { result.textContent = '尚未開啟任何頁面'; return; }
+  result.textContent = '計算中…（大檔可能需數秒）';
+  const res = await pywebview.api.estimate_output_size(buildPageList(active), withBookmarks(options));
+  if (!res || !res.ok) { result.textContent = (res && res.msg) || '預估失敗'; return; }
+  result.textContent = `目前選項：${sizeChange(res.original, res.current)}；` +
+    `不壓縮 ${formatBytes(res.sizes.none)}、標準 ${formatBytes(res.sizes.medium)}、強力 ${formatBytes(res.sizes.high)}`;
+}
+
 function updateOptionsBadge() {
   const opts = getOutputOptions() || {};
   const count = [opts.password, opts.compress !== 'none', opts.watermark, opts.page_numbers, opts.redact, opts.meta_mode].filter(Boolean).length;
@@ -1239,6 +1265,7 @@ async function saveEditor() {
   setStatus('儲存中…', true);
   const res = await pywebview.api.save_edited_pdf(buildPageList(active), out, withBookmarks(options))
     || { ok: false, msg: '發生未知錯誤' };
+  if (res.ok && res.size != null) res.msg += `（${sizeChange(res.original, res.size)}）`;
   setStatus(res.msg, res.ok);
   showToast(res.msg, res.ok);
   if (!res.ok) return;

@@ -610,26 +610,61 @@ class API:
             new_doc.close()
             raise
 
+    def _save_kwargs(self, new_doc, options):
+        """Apply image compression to new_doc and return the save() arguments."""
+        save_opts = dict(garbage=4, deflate=True)
+        level = COMPRESS_LEVELS.get(options.get("compress"))
+        if level:
+            threshold, target, quality = level
+            new_doc.rewrite_images(dpi_threshold=threshold, dpi_target=target, quality=quality)
+            save_opts.update(use_objstms=True)
+        password = options.get("password")
+        if password:
+            # A separate random owner password keeps the permission
+            # restrictions enforceable (with owner == user they'd be moot)
+            save_opts.update(encryption=fitz.PDF_ENCRYPT_AES_256,
+                             user_pw=password,
+                             owner_pw=secrets.token_urlsafe(24),
+                             permissions=ENCRYPTED_PERMS)
+        return save_opts
+
     def _build_and_save(self, pages, out_path, options):
         new_doc = self._build_doc(pages, options)
         try:
-            save_opts = dict(garbage=4, deflate=True)
-            level = COMPRESS_LEVELS.get(options.get("compress"))
-            if level:
-                threshold, target, quality = level
-                new_doc.rewrite_images(dpi_threshold=threshold, dpi_target=target, quality=quality)
-                save_opts.update(use_objstms=True)
-            password = options.get("password")
-            if password:
-                # A separate random owner password keeps the permission
-                # restrictions enforceable (with owner == user they'd be moot)
-                save_opts.update(encryption=fitz.PDF_ENCRYPT_AES_256,
-                                 user_pw=password,
-                                 owner_pw=secrets.token_urlsafe(24),
-                                 permissions=ENCRYPTED_PERMS)
-            new_doc.save(out_path, **save_opts)
+            new_doc.save(out_path, **self._save_kwargs(new_doc, options))
         finally:
             new_doc.close()
+
+    def _source_size(self, pages):
+        """Total bytes of the distinct source files the pages come from."""
+        total = 0
+        for src in {p["src"] for p in pages if not p.get("blank")}:
+            try:
+                total += os.path.getsize(src)
+            except OSError:
+                pass
+        return total
+
+    def estimate_output_size(self, pages, options=None):
+        """Size the output would have (built in memory, nothing written),
+        for the chosen options and for each compression level."""
+        options = dict(options or {})
+        try:
+            if not pages:
+                return {"ok": False, "msg": "沒有頁面可預估！"}
+            sizes = {}
+            with self._lock:
+                for level in dict.fromkeys([options.get("compress") or "none", "none", "medium", "high"]):
+                    opts = {**options, "compress": level}
+                    doc = self._build_doc(pages, opts)
+                    try:
+                        sizes[level] = len(doc.tobytes(**self._save_kwargs(doc, opts)))
+                    finally:
+                        doc.close()
+            return {"ok": True, "original": self._source_size(pages), "sizes": sizes,
+                    "current": sizes[options.get("compress") or "none"]}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
 
     def split_pdf(self, groups, folder, options=None):
         """groups: [{name, pages}]; each is saved as <folder>/<name>.pdf, never
@@ -824,7 +859,13 @@ class API:
                 self._passwords[out_path] = password
             else:
                 self._passwords.pop(out_path, None)
-            return {"ok": True, "path": out_path, "msg": f"儲存成功！已儲存：{out_path}"}
+            result = {"ok": True, "path": out_path, "msg": f"儲存成功！已儲存：{out_path}"}
+            try:
+                original, size = self._source_size(pages), os.path.getsize(out_path)
+                result.update(original=original, size=size)
+            except OSError:
+                pass
+            return result
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
