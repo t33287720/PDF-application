@@ -658,3 +658,45 @@ def test_estimate_output_size_matches_actual(api, tmp_path):
     assert set(res["sizes"]) == {"none", "medium", "high"}
     assert res["sizes"]["high"] <= res["sizes"]["none"]
     assert not api.estimate_output_size([], {})["ok"]
+
+
+# ── batch compress ───────────────────────────────────────────────────────────
+
+def test_batch_compress(api, tmp_path):
+    src, out = tmp_path / "in", tmp_path / "out"
+    src.mkdir(); out.mkdir()
+    # noisy image so it actually shrinks when downsampled
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 1600, 1600), False)
+    pix.set_rect(pix.irect, (10, 20, 30))
+    for i in range(0, 1600, 7):
+        pix.set_rect(fitz.IRect(i, 0, i + 3, 1600), (i % 255, 200, (i * 3) % 255))
+    page.insert_image(page.rect, pixmap=pix)
+    doc.save(str(src / "big.pdf"))
+    doc.close()
+    make_pdf(src / "locked.pdf", 1, password="pw")
+    (src / "broken.pdf").write_bytes(b"not a pdf")
+    original = (src / "big.pdf").read_bytes()
+
+    res = api.batch_compress(str(src), str(out), "high")
+    assert res["ok"]
+    by_name = {r["name"]: r for r in res["results"]}
+    assert by_name["locked.pdf"]["status"] == "skip"
+    assert by_name["broken.pdf"]["status"] == "skip"
+    big = by_name["big.pdf"]
+    assert big["status"] == "ok" and big["size"] < big["original"]
+    assert os.path.getsize(out / "big_compressed.pdf") == big["size"]
+    assert res["saved"] == big["original"] - big["size"]
+    assert (src / "big.pdf").read_bytes() == original   # source untouched
+    # a second run never overwrites the earlier output
+    api.batch_compress(str(src), str(out), "high")
+    assert (out / "big_compressed_1.pdf").exists() or len(list(out.iterdir())) == 2
+
+
+def test_batch_compress_rejects_bad_folders(api, tmp_path):
+    make_pdf(tmp_path / "a.pdf", 1)
+    assert not api.batch_compress(str(tmp_path), str(tmp_path))["ok"]
+    assert not api.batch_compress(str(tmp_path / "nope"), str(tmp_path))["ok"]
+    empty = tmp_path / "empty"; empty.mkdir()
+    assert not api.batch_compress(str(empty), str(tmp_path))["ok"]

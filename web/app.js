@@ -1371,6 +1371,68 @@ async function runSplit() {
   showToast(out.msg, out.ok);
 }
 
+// ── Batch compress ────────────────────────────────────────────────────────────
+
+setupModal('batch-modal', closeBatch);
+const batchState = { src: '', out: '', running: false };
+
+function openBatch() {
+  if (batchState.running) return;
+  document.getElementById('batch-result').innerHTML = '';
+  document.getElementById('batch-progress').textContent = '';
+  document.getElementById('batch-modal').classList.add('show');
+}
+
+function closeBatch() {
+  if (batchState.running) return;   // use the cancel button while running
+  document.getElementById('batch-modal').classList.remove('show');
+}
+
+async function pickBatchFolder(which) {
+  const folder = await pywebview.api.browse_folder();
+  if (!folder) return;
+  batchState[which] = folder;
+  document.getElementById(`batch-${which}`).textContent = folder;
+}
+
+async function runBatch() {
+  const progress = document.getElementById('batch-progress');
+  const go = document.getElementById('batch-go');
+  if (batchState.running) { pywebview.api.cancel_batch(); go.disabled = true; return; }
+  if (!batchState.src || !batchState.out) {
+    progress.textContent = '請先選擇來源與輸出資料夾';
+    progress.classList.add('err');
+    return;
+  }
+  progress.classList.remove('err');
+  document.getElementById('batch-result').innerHTML = '';
+  batchState.running = true;
+  go.textContent = '取消';
+  document.getElementById('batch-close').disabled = true;
+  const timer = setInterval(async () => {
+    const p = await pywebview.api.get_batch_progress();
+    if (p && p.total) progress.textContent = `處理中 ${p.done} / ${p.total}：${p.name}`;
+  }, 400);
+  const res = await pywebview.api.batch_compress(
+    batchState.src, batchState.out, document.getElementById('batch-level').value
+  ) || { ok: false, msg: '發生未知錯誤' };
+  clearInterval(timer);
+  batchState.running = false;
+  go.textContent = '開始壓縮';
+  go.disabled = false;
+  document.getElementById('batch-close').disabled = false;
+  progress.textContent = res.msg;
+  progress.classList.toggle('err', !res.ok);
+  setStatus(res.msg, res.ok);
+  if (!res.ok) return;
+  const rows = res.results.map(r => {
+    const detail = r.status === 'ok' ? sizeChange(r.original, r.size) : `略過：${escapeHtml(r.reason)}`;
+    return `<tr class="${r.status === 'ok' ? '' : 'batch-skip'}"><td>${escapeHtml(r.name)}</td><td>${detail}</td></tr>`;
+  }).join('');
+  document.getElementById('batch-result').innerHTML =
+    `<div class="batch-table-wrap"><table class="batch-table"><tbody>${rows}</tbody></table></div>`;
+}
+
 // ── Export as images ──────────────────────────────────────────────────────────
 
 setupModal('images-modal', closeImageExport);

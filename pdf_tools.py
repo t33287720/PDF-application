@@ -101,6 +101,14 @@ def _auto_name(directory, prefix):
         i += 1
 
 
+def _fmt_size(n):
+    for unit in ("B", "KB", "MB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GB"
+
+
 def _unique_path(path):
     """`path`, or `name (2).ext`, `name (3).ext`… if it is taken."""
     if not os.path.exists(path):
@@ -342,6 +350,8 @@ class API:
         # pywebview runs each JS call on its own thread and MuPDF isn't
         # thread-safe, so every fitz operation goes through this lock
         self._lock = threading.RLock()
+        self._batch_cancel = False
+        self._batch_progress = {"done": 0, "total": 0, "name": ""}
         self._thumb_doc = None  # (path, doc) kept open between thumbnail batches
         self._settings = _load_settings()
         self._tmp_dir = None    # holds PDFs converted from images
@@ -663,6 +673,82 @@ class API:
                         doc.close()
             return {"ok": True, "original": self._source_size(pages), "sizes": sizes,
                     "current": sizes[options.get("compress") or "none"]}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    BATCH_MAX_FILES = 200
+
+    def cancel_batch(self):
+        """Ask a running batch_compress() to stop after the current file."""
+        self._batch_cancel = True
+        return True
+
+    def get_batch_progress(self):
+        return dict(getattr(self, "_batch_progress", {"done": 0, "total": 0, "name": ""}))
+
+    def batch_compress(self, folder, out_dir, level="medium"):
+        """Compress every .pdf directly inside `folder` into `out_dir` as
+        <name>_compressed.pdf (never overwriting). Encrypted / broken files and
+        files that would not shrink are reported as skipped, not fatal."""
+        try:
+            if level not in COMPRESS_LEVELS:
+                level = "medium"
+            folder = os.path.abspath(os.path.expanduser(folder or ""))
+            out_dir = os.path.abspath(os.path.expanduser(out_dir or ""))
+            if not os.path.isdir(folder):
+                return {"ok": False, "msg": f"來源資料夾不存在：{folder}"}
+            if not os.path.isdir(out_dir):
+                return {"ok": False, "msg": f"輸出資料夾不存在：{out_dir}"}
+            if os.path.normcase(folder) == os.path.normcase(out_dir):
+                return {"ok": False, "msg": "輸出資料夾不能與來源資料夾相同！"}
+            names = sorted(n for n in os.listdir(folder)
+                           if n.lower().endswith(".pdf") and os.path.isfile(os.path.join(folder, n)))
+            if not names:
+                return {"ok": False, "msg": "來源資料夾內沒有 PDF 檔案！"}
+            if len(names) > self.BATCH_MAX_FILES:
+                return {"ok": False, "msg": f"檔案過多（{len(names)} 個），上限 {self.BATCH_MAX_FILES} 個！"}
+            self._batch_cancel = False
+            results, cancelled = [], False
+            for i, name in enumerate(names):
+                if self._batch_cancel:
+                    cancelled = True
+                    break
+                self._batch_progress = {"done": i, "total": len(names), "name": name}
+                src = os.path.join(folder, name)
+                item = {"name": name, "status": "ok", "original": os.path.getsize(src)}
+                try:
+                    with self._lock:
+                        doc = fitz.open(src)
+                        try:
+                            if doc.needs_pass:
+                                item.update(status="skip", reason="已加密")
+                            elif doc.page_count == 0:
+                                item.update(status="skip", reason="沒有頁面")
+                            else:
+                                data = None
+                                kwargs = self._save_kwargs(doc, {"compress": level})
+                                data = doc.tobytes(**kwargs)
+                        finally:
+                            doc.close()
+                    if item["status"] == "ok":
+                        if len(data) >= item["original"]:
+                            item.update(status="skip", reason="無法再縮小，保留原檔")
+                        else:
+                            base = _safe_prefix(name[:-4], "file")
+                            path = _unique_path(os.path.join(out_dir, f"{base}_compressed.pdf"))
+                            with open(path, "wb") as f:
+                                f.write(data)
+                            item.update(size=len(data), out=os.path.basename(path))
+                except Exception as e:
+                    item.update(status="skip", reason=f"無法處理（{e}）")
+                results.append(item)
+            self._batch_progress = {"done": len(results), "total": len(names), "name": ""}
+            done = [r for r in results if r["status"] == "ok"]
+            saved = sum(r["original"] - r["size"] for r in done)
+            msg = f"已壓縮 {len(done)} / {len(names)} 個檔案，共節省 {_fmt_size(saved)}"
+            if cancelled:
+                msg += "（已取消）"
+            return {"ok": True, "results": results, "saved": saved, "cancelled": cancelled, "msg": msg}
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 

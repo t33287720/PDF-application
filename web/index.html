@@ -52,6 +52,7 @@
           <button onclick="extractSelected()">擷取選取頁為 PDF…</button>
           <button onclick="openSplit()">分割成多個 PDF…</button>
           <button onclick="openImageExport()">轉成圖片…</button>
+          <button onclick="openBatch()" title="一次壓縮整個資料夾的 PDF">批次壓縮資料夾…</button>
           <button onclick="exportText()" title="有選取頁就只匯出選取頁，否則匯出全部">文字 (.txt)…</button>
         </div>
       </div>
@@ -225,6 +226,31 @@
       <div class="modal-btns">
         <button class="btn-tool" onclick="closeSplit()">取消</button>
         <button class="btn-primary" id="split-go" onclick="runSplit()">選擇資料夾並分割</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch compress a folder -->
+  <div id="batch-modal" class="modal-overlay">
+    <div class="modal-box options-box" role="dialog" aria-modal="true" aria-labelledby="batch-modal-title">
+      <h3 id="batch-modal-title">批次壓縮資料夾</h3>
+      <section class="opt-section">
+        <div class="batch-row"><button class="btn-tool" id="batch-src-btn" onclick="pickBatchFolder('src')">選擇來源資料夾…</button>
+          <span class="batch-path" id="batch-src">未選擇</span></div>
+        <div class="batch-row"><button class="btn-tool" id="batch-out-btn" onclick="pickBatchFolder('out')">選擇輸出資料夾…</button>
+          <span class="batch-path" id="batch-out">未選擇</span></div>
+        <label class="opt-toggle">壓縮強度
+          <select id="batch-level" class="opt-select">
+            <option value="medium">標準</option>
+            <option value="high">強力</option>
+          </select></label>
+        <p class="split-summary">只處理來源資料夾第一層的 .pdf（最多 200 個），輸出檔名加上 _compressed，不會覆蓋原檔；加密檔會略過。</p>
+      </section>
+      <p class="split-summary" id="batch-progress"></p>
+      <div id="batch-result"></div>
+      <div class="modal-btns">
+        <button class="btn-tool" id="batch-close" onclick="closeBatch()">關閉</button>
+        <button class="btn-primary" id="batch-go" onclick="runBatch()">開始壓縮</button>
       </div>
     </div>
   </div>
